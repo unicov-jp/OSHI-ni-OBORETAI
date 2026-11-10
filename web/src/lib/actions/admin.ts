@@ -84,3 +84,28 @@ export async function refetchFeed(feedId: string): Promise<ActionResult<{ added:
   if (!result.ok) return { ok: false, error: `取得に失敗しました: ${result.error}` };
   return { ok: true, data: { added: result.added } };
 }
+
+// Subscription の料金(推しの人数ごと)をまとめて置き換える
+const tierSchema = z
+  .array(z.object({ max_oshi: z.number().int().min(4).max(1000), monthly_yen: z.number().int().min(0).max(1000000) }))
+  .max(10, "料金は10段階までです");
+
+export async function setPriceTiers(input: { max_oshi: number; monthly_yen: number }[]): Promise<ActionResult> {
+  if (DEMO) return { ok: false, error: DEMO_ERROR };
+  await requireAdmin();
+  const parsed = tierSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "人数は4〜1000人、金額は0〜1,000,000円で入力してください" };
+  const tiers = [...parsed.data].sort((a, b) => a.max_oshi - b.max_oshi);
+  if (new Set(tiers.map((t) => t.max_oshi)).size !== tiers.length) return { ok: false, error: "同じ人数が2つあります" };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("oshikatsu_admin_set_price_tiers", { tiers });
+  if (error) {
+    if (error.message.includes("oshikatsu_admin_set_price_tiers")) {
+      return { ok: false, error: "料金の表がまだありません。新着用のSQLを実行してください" };
+    }
+    return failure(error.message);
+  }
+  revalidatePath("/pricing");
+  revalidatePath("/admin", "layout");
+  return { ok: true };
+}

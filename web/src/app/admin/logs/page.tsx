@@ -12,6 +12,8 @@ const ACTION_LABEL: Record<string, string> = {
   "user.role": "権限を変更",
   "feed.status": "取得元の状態を変更",
   "feed.refetch": "取得元を手動取得",
+  "user.plan": "プランを変更",
+  "price.tiers": "料金を変更",
 };
 
 export default async function AdminLogsPage({

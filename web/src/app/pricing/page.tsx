@@ -1,26 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { buttonClass } from "@/components/ui";
+import { FREE_OSHI, getPriceTiers, yen } from "@/lib/pricing";
 
 export const metadata: Metadata = { title: "料金" };
+// 料金は管理画面で変えるので、開くたびに読み直す
+export const dynamic = "force-dynamic";
 
-// 料金ページ(ログインしていなくても見られる)。金額は Vercel の環境変数 SUBSCRIPTION_PRICE_LABEL(例: 月額480円)で表示する。
-// スマホで見やすいよう、表ではなくプランごとのカードを縦に並べる。違いは数字を大きく、共通の機能はまとめて書く
-
-type Plan = {
-  name: string;
-  price: string;
-  note: string;
-  oshi: string;
-  sources: string;
-  highlight?: boolean;
-};
+// 料金ページ(ログインしていなくても見られる)。
+// 無料は推し3人まで。Subscription は登録する推しの人数で月額が変わる(金額は管理画面の「料金」で決める)
 
 const COMMON = [
   "推しごとの新着(YouTube・Blog・X・Instagram・TikTok)をスワイプで見る",
   "ギャラリー(推しの写真・チェキ)",
   "カレンダー(LIVE・チェキの記録)",
-  "今のアプリ(推し活手帳)と記録を共有",
 ];
 
 function Check() {
@@ -31,12 +24,9 @@ function Check() {
   );
 }
 
-export default function PricingPage() {
-  const price = process.env.SUBSCRIPTION_PRICE_LABEL || "準備中";
-  const plans: Plan[] = [
-    { name: "無料", price: "0円", note: "まずはお試しに", oshi: "3人", sources: "15件" },
-    { name: "Subscription", price, note: "推しが多い人に", oshi: "50人", sources: "300件", highlight: true },
-  ];
+export default async function PricingPage() {
+  const tiers = await getPriceTiers();
+  const lowest = tiers[0];
 
   return (
     <main className="mx-auto max-w-[760px] space-y-6 px-4 py-8">
@@ -45,34 +35,52 @@ export default function PricingPage() {
           ← 設定に戻る
         </Link>
         <h1 className="mt-1 text-2xl font-bold">料金</h1>
-        <p className="mt-2 text-sm text-muted">無料で始めて、推しが増えたら Subscription に切り替えられます。違いは登録できる数だけです。</p>
+        <p className="mt-2 text-sm text-muted">
+          推し{FREE_OSHI}人までは無料です。それより多く登録するときは Subscription に切り替えます。月額は登録する推しの人数で変わります。
+        </p>
       </div>
 
-      {/* プランごとのカード: 違い(登録できる数)を大きく見せる */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        {plans.map((plan) => (
-          <section
-            key={plan.name}
-            className={`rounded-2xl border p-5 ${plan.highlight ? "border-brand bg-brand/5" : "border-line bg-surface"}`}
-          >
-            <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-lg font-bold">{plan.name}</h2>
-              <span className="text-xs text-muted">{plan.note}</span>
-            </div>
-            <p className="num mt-2 text-2xl font-bold">{plan.price}</p>
-            <dl className="mt-4 grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-sunken px-3 py-3">
-                <dt className="text-xs text-muted">登録できる推し</dt>
-                <dd className="num mt-1 text-xl font-bold">{plan.oshi}</dd>
-              </div>
-              <div className="rounded-xl bg-sunken px-3 py-3">
-                <dt className="text-xs text-muted">新着を取るSNS・Blog</dt>
-                <dd className="num mt-1 text-xl font-bold">{plan.sources}</dd>
-              </div>
-            </dl>
-          </section>
-        ))}
-      </div>
+      {/* 無料 */}
+      <section className="rounded-2xl border border-line bg-surface p-5">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-lg font-bold">無料</h2>
+          <span className="text-xs text-muted">まずはお試しに</span>
+        </div>
+        <p className="num mt-2 text-2xl font-bold">0円</p>
+        <p className="num mt-1 text-sm text-muted">推し{FREE_OSHI}人まで・新着を取るSNS・Blog 15件まで</p>
+      </section>
+
+      {/* Subscription: 人数ごとの月額 */}
+      <section className="rounded-2xl border border-brand bg-brand/5 p-5">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-lg font-bold">Subscription</h2>
+          <span className="text-xs text-muted">推しが多い人に</span>
+        </div>
+        {lowest ? (
+          <>
+            <p className="num mt-2 text-2xl font-bold">
+              月額{yen(lowest.monthly_yen)}
+              <span className="text-sm font-normal text-muted">〜</span>
+            </p>
+            <ul className="mt-4 divide-y divide-line overflow-hidden rounded-xl bg-sunken">
+              {tiers.map((tier, i) => {
+                const from = (i === 0 ? FREE_OSHI : tiers[i - 1].max_oshi) + 1;
+                return (
+                  <li key={tier.max_oshi} className="num flex items-center justify-between gap-3 px-4 py-3">
+                    <span className="text-sm">
+                      推し <b className="text-base">{from}〜{tier.max_oshi}人</b>
+                    </span>
+                    <span className="text-base font-bold">月額{yen(tier.monthly_yen)}</span>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="num mt-3 text-xs text-muted">新着を取るSNS・Blog は300件まで。人数を増やしたときは、その人数の月額に切り替わります。</p>
+          </>
+        ) : (
+          <p className="mt-2 text-2xl font-bold">準備中</p>
+        )}
+      </section>
 
       {/* どちらのプランでも使えること */}
       <section className="rounded-2xl border border-line bg-surface p-5">

@@ -638,3 +638,36 @@ grant execute on function public.oshikatsu_claim_due_feeds(int, uuid) to service
 grant execute on function public.oshikatsu_bump_api_usage(text, int) to service_role;
 grant execute on function public.oshikatsu_cleanup_old_data(int) to service_role;
 grant execute on function public.oshikatsu_claim_user_feeds(uuid, int, int) to service_role;
+
+-- ============ Subscription の料金(推しの人数ごと) ============
+-- 例: 推し10人まで 月額◯円、30人まで 月額◯円…。管理画面の「料金」から変える。料金ページはログインしていなくても読める
+create table if not exists public.oshikatsu_price_tiers (
+  max_oshi    int         primary key check (max_oshi between 4 and 1000), -- この人数まで
+  monthly_yen int         not null check (monthly_yen between 0 and 1000000),
+  updated_at  timestamptz not null default now()
+);
+alter table public.oshikatsu_price_tiers enable row level security;
+drop policy if exists "oshikatsu_price_tiers_select" on public.oshikatsu_price_tiers;
+create policy "oshikatsu_price_tiers_select" on public.oshikatsu_price_tiers for select to anon, authenticated using (true);
+revoke all on public.oshikatsu_price_tiers from anon, authenticated;
+grant select on public.oshikatsu_price_tiers to anon, authenticated;
+
+-- 運営者向け：料金をまとめて置き換える([{"max_oshi":10,"monthly_yen":300}, ...])。操作ログに残す
+create or replace function public.oshikatsu_admin_set_price_tiers(tiers jsonb) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.oshikatsu_is_admin() then
+    raise exception 'FORBIDDEN' using errcode = '42501';
+  end if;
+  if jsonb_typeof(tiers) <> 'array' or jsonb_array_length(tiers) > 10 then
+    raise exception 'INVALID_TIERS' using errcode = 'P0001';
+  end if;
+  delete from public.oshikatsu_price_tiers where true;
+  insert into public.oshikatsu_price_tiers (max_oshi, monthly_yen)
+  select (t->>'max_oshi')::int, (t->>'monthly_yen')::int from jsonb_array_elements(tiers) t;
+  insert into public.oshikatsu_audit_logs (admin_id, action, target, detail)
+  values ((select auth.uid()), 'price.tiers', 'subscription', tiers::text);
+end;
+$$;
+revoke all on function public.oshikatsu_admin_set_price_tiers(jsonb) from public, anon;
+grant execute on function public.oshikatsu_admin_set_price_tiers(jsonb) to authenticated;

@@ -9,9 +9,9 @@ import { useLongPress } from "@/lib/long-press";
 import type { CalendarEntry, GalleryPhoto, Oshi } from "@/lib/types";
 
 // 新着(SNS)の左右にある画面。
-// - ギャラリー(新着から右へスワイプ): 推しのギャラリーとチェキの写真を、上下のスワイプで1枚ずつ見る。
+// - ギャラリー(新着から左へスワイプ): 推しのギャラリーとチェキの写真を、上下のスワイプで1枚ずつ見る。
 //   右下の推しのアイコンを長押し(またはタップ)で、ギャラリーの写真・チェキを追加する
-// - カレンダー(新着から左へスワイプ): 推しの LIVE・チェキの記録を月ごとに見て、LIVE・チェキを登録する。
+// - カレンダー(新着から右へスワイプ): 推しの LIVE・チェキの記録を月ごとに見て、LIVE・チェキを登録する。
 //   上から推しのアイコン・カレンダーの順で位置を固定し、日付をタップするとカレンダーの下にその日の記録を出す。
 //   チェキの写真はギャラリーで見る
 // どちらも今のアプリ(推し活手帳)と同じ記録を読み書きする
@@ -336,7 +336,7 @@ export function CalendarBody({ oshi, entries }: { oshi: Oshi; entries: CalendarE
   const addButton = "flex h-9 items-center rounded-full bg-white/15 px-3 text-[13px] font-bold active:bg-white/25";
 
   return (
-    <div className="flex h-full flex-col pt-[calc(var(--bar)+1.75rem)] pb-[env(safe-area-inset-bottom)]">
+    <div className="flex h-full flex-col pt-[calc(var(--bar)+0.5rem)] pb-[env(safe-area-inset-bottom)]">
       {/* カレンダー(位置は固定。下の記録だけが動く) */}
       <div className="mx-auto w-full max-w-[520px] shrink-0 px-3">
         <div className="mb-1 flex items-center justify-between">

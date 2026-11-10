@@ -20,7 +20,7 @@ import type { CalendarEntry, GalleryPhoto, Oshi, Platform, Source, TimelineItem 
 
 // TikTok 風の新着。推しを1人選び、その推しと所属グループの新着(動画・記事・X・Instagram・TikTok)を
 // 1本の流れにして、上下のスワイプで1件ずつ見る。
-// 左右のスワイプで画面を切り替える: [ギャラリー] ← 右へスワイプ ― [新着(SNS)] ― 左へスワイプ → [カレンダー]
+// 左右のスワイプで画面を切り替える: [カレンダー] ← 右へスワイプ ― [新着(SNS)] ― 左へスワイプ → [ギャラリー]
 // 画面に出ている1件だけを読み込み・再生し(音なしで自動再生)、ほかは静止画にして軽くする。
 
 type Props = {
@@ -39,7 +39,7 @@ type Props = {
   pageSize: number;
   // 今のアプリの登録(本人・グループ)のうち、まだ新着の取得先に取り込んでいないSNSの数
   pendingSns: number;
-  // 開いている画面(新着・ギャラリー・カレンダー)と、その中身
+  // 最初に開く画面(新着・ギャラリー・カレンダー)と、その中身。3つともまとめて読んでおき、左右のスワイプはその場で切り替える
   view: FeedView;
   gallery: GalleryPhoto[];
   calendar: CalendarEntry[];
@@ -47,8 +47,7 @@ type Props = {
 
 export type FeedView = "feed" | "gallery" | "calendar";
 // 画面の並び(左から)。右へスワイプすると左の画面へ、左へスワイプすると右の画面へ移る
-const VIEWS: FeedView[] = ["gallery", "feed", "calendar"];
-const VIEW_LABEL: Record<FeedView, string> = { gallery: "ギャラリー", feed: "SNS", calendar: "カレンダー" };
+const VIEWS: FeedView[] = ["calendar", "feed", "gallery"];
 
 function tabHref(id: string, view: FeedView): string {
   return `/app?tab=${encodeURIComponent(id)}${view === "feed" ? "" : `&view=${view}`}`;
@@ -142,8 +141,11 @@ type Slide =
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
 export function SwipeFeed({
-  isAdmin, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view, gallery, calendar,
+  isAdmin, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view: initialView, gallery, calendar,
 }: Props) {
+  const [view, setView] = useState<FeedView>(initialView);
+  // 切り替えた向き(画面を横から滑り込ませる向き)
+  const [enter, setEnter] = useState<"left" | "right" | null>(null);
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [hasMore, setHasMore] = useState(initialItems.length >= pageSize);
@@ -351,16 +353,20 @@ export function SwipeFeed({
     return () => clearTimeout(timer);
   }, [active.id, unreadCount]);
 
-  // 左右のスワイプで画面を切り替える(ギャラリー ← 新着 → カレンダー)。推しの切り替えは上のアイコンで行う
+  // 左右のスワイプで画面を切り替える(カレンダー ← 新着 → ギャラリー)。推しの切り替えは上のアイコンで行う。
+  // 3つの画面の中身は読み込み済みなので、サーバーを待たずにその場で切り替え、URLだけ書き換える
   const go = useCallback(
     (step: number) => {
       const next = VIEWS[VIEWS.indexOf(view) + step];
-      // 履歴は置き換える(戻る操作で画面を1つずつさかのぼらないように)
-      if (next) router.replace(tabHref(active.id, next), { scroll: false });
+      if (!next) return;
+      buzz(15);
+      setEnter(step > 0 ? "right" : "left");
+      setView(next);
+      window.history.replaceState(window.history.state, "", tabHref(active.id, next));
     },
-    [view, active.id, router],
+    [view, active.id],
   );
-  const touch = useRef<{ x: number; y: number } | null>(null);
+  const touch = useRef<{ x: number; y: number; at: number } | null>(null);
 
   // 推しのアイコンをタップしたら(=この画面が開いたら)、その推しの新着を取りに行く。
   // 新しく届いたものがあれば画面を読み直す。取得元ごとに10分は取り直さない(サーバー側)
@@ -393,7 +399,7 @@ export function SwipeFeed({
 
   // ブラウザが音を出させてくれる状態か(画面を一度でも触ったか)。サーバーで作る画面では「触った」とみなし、
   // ブラウザで実際の状態に合わせる(表示のずれを起こさないため useSyncExternalStore を使う)
-  const browserActivated = useSyncExternalStore(subscribeActivation, readActivation, () => true);
+  const browserActivated = useSyncExternalStore(subscribeActivation, readActivation, () => false);
   const [touched, setActivated] = useState(false);
   const activated = browserActivated || touched;
   const controls = useMemo(
@@ -427,8 +433,13 @@ export function SwipeFeed({
         if ((event.target as HTMLElement).closest("a, button")) buzz();
       }}
       onTouchStart={(event) => {
+        // 上の推しのアイコンの並びを動かすときは、画面の切り替えにしない
+        if ((event.target as HTMLElement).closest("nav")) {
+          touch.current = null;
+          return;
+        }
         const t = event.touches[0];
-        touch.current = { x: t.clientX, y: t.clientY };
+        touch.current = { x: t.clientX, y: t.clientY, at: Date.now() };
       }}
       onTouchEnd={(event) => {
         const start = touch.current;
@@ -437,7 +448,9 @@ export function SwipeFeed({
         const t = event.changedTouches[0];
         const dx = t.clientX - start.x;
         const dy = t.clientY - start.y;
-        if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 2) go(dx < 0 ? 1 : -1);
+        // 横に50px以上、またはすばやく払ったとき(0.25秒以内に30px以上)に切り替える。縦の動きが大きいときは切り替えない
+        const quick = Date.now() - start.at < 250 && Math.abs(dx) > 30;
+        if ((Math.abs(dx) > 50 || quick) && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
       }}
     >
       {/* 上: 推しのアイコン(いちばん左の推しを再生。動かして左端に来た推しに切り替えて新着を取りに行く。長押しでSNSの登録) */}
@@ -473,23 +486,27 @@ export function SwipeFeed({
         </p>
       ) : null}
 
-      {/* 今の画面(ギャラリー・SNS・カレンダー)。左右のスワイプで切り替わる */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute top-[calc(var(--bar)+4px)] left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 text-[11px] font-bold [text-shadow:0_1px_3px_rgba(0,0,0,.7)]"
-      >
-        {VIEWS.map((v) => (
-          <span key={v} className={v === view ? "text-white" : "text-white/40"}>
-            {VIEW_LABEL[v]}
-          </span>
-        ))}
-      </div>
+      {/* ギャラリー・カレンダー: 新着の上に重ねて出す(新着は裏で止めておき、戻ったときに同じ位置から見られる)。
+          切り替えた画面は横から滑り込ませる */}
+      {view !== "feed" ? (
+        <div
+          key={view}
+          className="absolute inset-0 z-10 bg-black"
+          style={enter ? { animation: `view-enter-${enter} 180ms ease-out` } : undefined}
+        >
+          {view === "gallery" ? (
+            <GalleryBody key={`g-${active.id}`} oshi={active} photos={gallery} />
+          ) : (
+            <CalendarBody key={`c-${active.id}`} oshi={active} entries={calendar} />
+          )}
+        </div>
+      ) : null}
 
-      {view === "gallery" ? (
-        <GalleryBody key={`g-${active.id}`} oshi={active} photos={gallery} />
-      ) : view === "calendar" ? (
-        <CalendarBody key={`c-${active.id}`} oshi={active} entries={calendar} />
-      ) : slides.length === 0 ? (
+      <div
+        className={`absolute inset-0 ${view === "feed" ? "" : "invisible"}`}
+        style={view === "feed" && enter ? { animation: `view-enter-${enter} 180ms ease-out` } : undefined}
+      >
+      {slides.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
           <OshiAvatar oshi={active} size={72} />
           <p className="text-lg font-bold">{active.name}</p>
@@ -511,7 +528,7 @@ export function SwipeFeed({
                   item={slide.item}
                   from={slide.from}
                   oshi={active}
-                  live={i === current}
+                  live={i === current && view === "feed"}
                   near={Math.abs(i - current) <= 1}
                   muted={muted}
                   onToggleSound={() => setMuted((m) => !m)}
@@ -523,7 +540,7 @@ export function SwipeFeed({
                   at={slide.at}
                   from={slide.from}
                   oshi={active}
-                  live={i === current}
+                  live={i === current && view === "feed"}
                   muted={muted}
                   onToggleSound={() => setMuted((m) => !m)}
                 />
@@ -535,12 +552,12 @@ export function SwipeFeed({
                   from={slide.from}
                   oshi={active}
                   near={Math.abs(i - current) <= 1}
-                  live={i === current}
+                  live={i === current && view === "feed"}
                 />
               ) : slide.kind === "insta" ? (
                 <InstaSlide source={slide.source} code={slide.code} from={slide.from} oshi={active} near={Math.abs(i - current) <= 1} />
               ) : (
-                <EmbedSlide source={slide.source} from={slide.from} oshi={active} live={i === current} />
+                <EmbedSlide source={slide.source} from={slide.from} oshi={active} live={i === current && view === "feed"} />
               )}
             </section>
           ))}
@@ -549,6 +566,7 @@ export function SwipeFeed({
           ) : null}
         </div>
       )}
+      </div>
     </div>
     </Controls.Provider>
   );
@@ -664,7 +682,7 @@ function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
             </li>
           ))}
         </ul>
-        <p className="mt-3 px-1 text-xs text-white/45">ギャラリーは右へ、カレンダー(LIVE・チェキ)は左へスワイプで開けます。</p>
+        <p className="mt-3 px-1 text-xs text-white/45">カレンダー(LIVE・チェキ)は右へ、ギャラリーは左へスワイプで開けます。</p>
         <button type="button" onClick={onClose} className="mt-3 h-12 w-full rounded-2xl bg-white/10 text-[15px] font-semibold">
           閉じる
         </button>
@@ -814,11 +832,13 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   }, []);
 
   // 音のオン・オフは YouTube の埋め込みに命令を送って切り替える(画面に出ている1件だけ)。
-  // 自動再生を確実に始めるため音なしで読み込み、すぐに音をオンにする
+  // 自動再生を確実に始めるため音なしで読み込み、画面を一度でも触っていれば音をオンにする。
+  // 起動直後(まだ触っていない)に音をオンにすると、ブラウザが再生を止めてしまうので、触るまでは音なしで再生する
+  const sound = !muted && activated;
   useEffect(() => {
     if (!live || !frame.current) return;
-    send(muted ? "mute" : "unMute");
-  }, [muted, live, send, activated]);
+    send(sound ? "unMute" : "mute");
+  }, [sound, live, send]);
 
   const tap = () => {
     if (!muted && !activated) {
@@ -894,7 +914,13 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
                 referrerPolicy="strict-origin-when-cross-origin"
                 onLoad={() => {
                   // 読み込み直後は命令を受け付けないことがあるため、少し間をおいて音の設定を送り直す
-                  for (const wait of [300, 1200]) setTimeout(() => send(muted ? "mute" : "unMute"), wait);
+                  // 止まっていたら再生し直す(起動直後に自動再生が始まらないことがあるため)
+                  for (const wait of [300, 1200]) {
+                    setTimeout(() => {
+                      send(sound ? "unMute" : "mute");
+                      send("playVideo");
+                    }, wait);
+                  }
                   hideCaptions();
                 }}
                 className="absolute inset-0 h-full w-full border-0"
@@ -1229,10 +1255,12 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
     frame.current?.contentWindow?.postMessage({ "x-tiktok-player": true, type }, "*");
   }, []);
   const { activated } = useContext(Controls);
-  // 画面を初めて触ったときにも音の設定を送り直す(それまではブラウザの制限で音を出せない)
+  // 画面を初めて触るまでは音なしで再生する(起動直後に音をオンにすると、ブラウザが再生を止めてしまう)。
+  // 触ったら音の設定を送り直す
+  const sound = !muted && activated;
   useEffect(() => {
-    if (live) send(muted ? "mute" : "unMute");
-  }, [muted, live, send, activated]);
+    if (live) send(sound ? "unMute" : "mute");
+  }, [sound, live, send]);
 
   // ループはプレーヤーの機能に任せると読み直しで途切れるため、終わったらすぐ先頭に戻して再生する
   useEffect(() => {
@@ -1268,7 +1296,12 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
               allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
               referrerPolicy="strict-origin-when-cross-origin"
               onLoad={() => {
-                for (const wait of [300, 1200]) setTimeout(() => send(muted ? "mute" : "unMute"), wait);
+                for (const wait of [300, 1200]) {
+                  setTimeout(() => {
+                    send(sound ? "unMute" : "mute");
+                    send("play");
+                  }, wait);
+                }
               }}
               className="absolute inset-0 h-full w-full border-0"
             />

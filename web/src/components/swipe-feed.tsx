@@ -54,6 +54,8 @@ function tabHref(id: string, view: FeedView): string {
 }
 
 const EMBED_PLATFORMS: Platform[] = ["x", "instagram", "tiktok"];
+// 中身を読み込めない(読み込まない)サービス: 推しのページへ移るカードを1枚はさむ
+const LINK_PLATFORMS: Platform[] = ["threads", "fantia", "myfans", "xfans"];
 
 // 縦長の動画(ショート・TikTok)の枠。画面に収まる中でいちばん大きく出す(見切れないよう、はみ出させない)
 const VERTICAL_FRAME = {
@@ -136,7 +138,8 @@ type Slide =
   | { kind: "embed"; key: string; source: Source; from: string }
   | { kind: "insta"; key: string; source: Source; from: string; code: string }
   | { kind: "tweet"; key: string; source: Source; from: string; id: string; at: string }
-  | { kind: "tiktok"; key: string; source: Source; from: string; id: string; at: string | null };
+  | { kind: "tiktok"; key: string; source: Source; from: string; id: string; at: string | null }
+  | { kind: "link"; key: string; source: Source; from: string };
 
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
@@ -312,6 +315,10 @@ export function SwipeFeed({
       if ((index + 1) % EMBED_EVERY === 0 && e < embeds.length) result.push(embeds[e++]);
     });
     while (e < embeds.length) result.push(embeds[e++]);
+    // Threads・Fantia・myfans・xfans は、推しのページへ移るカードとして最後に並べる
+    for (const source of sources.filter((s) => LINK_PLATFORMS.includes(s.platform))) {
+      result.push({ kind: "link", key: `l-${source.id}`, source, from: fromOf.get(source.id) ?? "" });
+    }
     return result;
   }, [items, sources, fromOf, instagram, x, tiktok]);
 
@@ -569,6 +576,8 @@ export function SwipeFeed({
                   near={Math.abs(i - current) <= 1}
                   live={i === current && view === "feed"}
                 />
+              ) : slide.kind === "link" ? (
+                <LinkSlide source={slide.source} from={slide.from} oshi={active} />
               ) : slide.kind === "insta" ? (
                 <InstaSlide source={slide.source} code={slide.code} from={slide.from} oshi={active} near={Math.abs(i - current) <= 1} />
               ) : (
@@ -1030,6 +1039,29 @@ function EmbedSlide({ source, from, oshi, live }: { source: Source; from: string
         }
         isNew={false}
       />
+    </>
+  );
+}
+
+// Threads・Fantia・myfans・xfans: 中身は読み込まず、推しのページへ移るカードを出す
+function LinkSlide({ source, from, oshi }: { source: Source; from: string; oshi: Oshi }) {
+  const label = PLATFORM_LABEL[source.platform];
+  return (
+    <>
+      <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 50% 30%, ${oshi.color}aa, #000 75%)` }} />
+      <a
+        href={source.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="absolute inset-x-0 top-[var(--bar)] bottom-0 z-[6] flex flex-col items-center justify-center gap-4 px-8 pb-40 text-center"
+      >
+        <OshiAvatar oshi={oshi} size={88} />
+        <p className="text-2xl font-black">{label}</p>
+        <p className="text-sm text-white/75">{source.handle}</p>
+        <span className="mt-2 flex h-12 items-center rounded-full bg-white px-8 text-[15px] font-bold text-black">{label}で見る</span>
+      </a>
+      <SideActions oshi={oshi} url={source.url} title={`${oshi.name}の${label}`} platform={label} />
+      <Info platform={label} oshi={oshi} from={from} time="" title={`${label} ${source.handle}`} isNew={false} />
     </>
   );
 }

@@ -1,7 +1,10 @@
 import type { Plan } from "@/lib/types";
 
 // プランの表示名の既定(管理画面の「料金」で変えられる。変えた名前は getPlanLabels で読む)
-export const PLAN_LABEL: Record<Plan, string> = { master: "Developer", paid: "有料", free: "無料" };
+export const PLAN_LABEL: Record<Plan, string> = { master: "Developer", advanced: "Advanced", paid: "有料", free: "無料" };
+
+// Fantia・myfans・xfans を登録できるプラン
+export const canUseAdvanced = (plan: Plan) => plan === "advanced" || plan === "master";
 export type PlanLabels = Record<Plan, string>;
 
 // 件数と上限の表示。上限なし(マスター)は「上限なし」と出す。

@@ -6,7 +6,7 @@ import { Button, Field, inputClass, Notice } from "@/components/ui";
 import { deleteOshiRecord, getOshiForEdit, removeOshiPhoto, saveOshiRecord } from "@/lib/actions/oshi";
 import { importAllSns } from "@/lib/actions/sources";
 import {
-  emptySns, SNS_KEYS, SNS_LABEL, SNS_PLACEHOLDER, type GroupInput, type OshiEditable, type SnsInput, type SnsKey,
+  ADVANCED_SNS_KEYS, emptySns, SNS_KEYS, SNS_LABEL, SNS_PLACEHOLDER, type GroupInput, type OshiEditable, type SnsInput, type SnsKey,
 } from "@/lib/oshi-record";
 import { MEMBER_COLORS } from "@/lib/platforms";
 
@@ -233,6 +233,10 @@ function snsKeyOf(url: string): SnsKey {
   if (host === "instagram.com") return "instagram";
   if (host === "tiktok.com" || host.endsWith(".tiktok.com")) return "tiktok";
   if (host === "youtube.com" || host === "youtu.be") return "youtube";
+  if (host === "threads.com" || host === "threads.net") return "threads";
+  if (host === "fantia.jp") return "fantia";
+  if (host === "myfans.jp") return "myfans";
+  if (host === "xfans.tokyo") return "xfans";
   return "web";
 }
 
@@ -279,7 +283,7 @@ function SnsFields({ title, value, onChange, compact = false }: {
       {placed ? <p className="text-xs text-ok">{placed}。保存すると新着を取る先にも登録されます。</p> : null}
       <div className="grid gap-3 sm:grid-cols-2">
         {SNS_KEYS.map((key) => (
-          <Field key={key} label={SNS_LABEL[key]}>
+          <Field key={key} label={ADVANCED_SNS_KEYS.includes(key) ? `${SNS_LABEL[key]}(Advanced)` : SNS_LABEL[key]}>
             <input
               className={inputClass}
               value={value[key]}

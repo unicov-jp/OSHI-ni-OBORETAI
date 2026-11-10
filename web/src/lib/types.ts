@@ -1,8 +1,9 @@
-export type Platform = "youtube" | "blog" | "x" | "instagram" | "threads" | "tiktok" | "link";
+export type Platform = "youtube" | "blog" | "x" | "instagram" | "threads" | "tiktok" | "link" | "fantia" | "myfans" | "xfans";
 export type SourceMode = "feed" | "embed" | "link";
 export type CategoryKind = "group" | "agency" | "genre";
 export type ViewMode = "oshi" | CategoryKind;
-export type Plan = "free" | "paid" | "master";
+// advanced: 有料の機能に加えて、Fantia・myfans・xfans を登録できる
+export type Plan = "free" | "paid" | "advanced" | "master";
 
 export type Category = {
   id: string;

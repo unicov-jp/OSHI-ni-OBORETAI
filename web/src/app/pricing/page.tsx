@@ -3,7 +3,7 @@ import Link from "next/link";
 import { PriceSimulator } from "@/components/price-simulator";
 import { buttonClass } from "@/components/ui";
 import { getPlanLabels } from "@/lib/plan-names";
-import { FREE_OSHI, getPerOshiPrice, PAID_MAX_OSHI } from "@/lib/pricing";
+import { FREE_OSHI, getPrices, PAID_MAX_OSHI } from "@/lib/pricing";
 
 export const metadata: Metadata = { title: "料金" };
 // 料金は管理画面で変えるので、開くたびに読み直す
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 // ▲▼で人数を変えると、その人数の月額を出す。Blog は登録できるが、ファンクラブ限定のこともあるため料金表には書かない
 
 const COMMON = [
-  "推しごとの投稿(YouTube・X・Instagram・TikTok)をスワイプで見る",
+  "推しごとの投稿(YouTube・X・Instagram・TikTok・Threads)をスワイプで見る",
   "ギャラリー(推しの写真・チェキ)",
   "カレンダー(LIVE・チェキの記録)",
 ];
@@ -28,7 +28,8 @@ function Check() {
 }
 
 export default async function PricingPage() {
-  const [perOshi, labels] = await Promise.all([getPerOshiPrice(), getPlanLabels()]);
+  const [prices, labels] = await Promise.all([getPrices(), getPlanLabels()]);
+  const perOshi = prices.paid;
 
   return (
     <main className="mx-auto max-w-[760px] space-y-6 px-4 py-8">
@@ -66,9 +67,15 @@ export default async function PricingPage() {
         )}
       </section>
 
-      {/* どちらのプランでも使えること */}
+      {/* Advanced: 有料の機能に加えて Fantia・myfans・xfans を登録できる */}
       <section className="rounded-2xl border border-line bg-surface p-5">
-        <h2 className="text-[15px] font-bold">どちらのプランでも使えること</h2>
+        <PriceSimulator name={labels.advanced} perOshi={prices.advanced} freeOshi={FREE_OSHI} maxOshi={PAID_MAX_OSHI} />
+        <p className="num mt-1 text-xs text-muted">{labels.paid}の内容 ＋ Fantia・myfans・xfans を登録できる</p>
+      </section>
+
+      {/* どのプランでも使えること */}
+      <section className="rounded-2xl border border-line bg-surface p-5">
+        <h2 className="text-[15px] font-bold">どのプランでも使えること</h2>
         <ul className="mt-3 space-y-2 text-sm">
           {COMMON.map((item) => (
             <li key={item} className="flex gap-2">

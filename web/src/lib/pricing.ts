@@ -10,15 +10,20 @@ export const FREE_OSHI = 3;
 // Subscription で登録できる推しの上限(DBの oshikatsu_max_oshi と同じ)
 export const PAID_MAX_OSHI = 50;
 
-export async function getPerOshiPrice(): Promise<number | null> {
-  if (DEMO) return 100;
+// Advanced プランの推し1人あたりの月額の既定(管理画面で変えるまで)
+export const ADVANCED_PER_OSHI_DEFAULT = 100;
+
+// 推し1人あたりの月額。paid=有料(未設定なら null)、advanced=Advanced
+export async function getPrices(): Promise<{ paid: number | null; advanced: number }> {
+  if (DEMO) return { paid: 50, advanced: ADVANCED_PER_OSHI_DEFAULT };
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase.from("oshikatsu_price_settings").select("per_oshi_yen").maybeSingle();
-    if (error || !data) return null;
-    return data.per_oshi_yen as number;
+    const { data, error } = await supabase.from("oshikatsu_price_settings").select("*").maybeSingle();
+    if (error || !data) return { paid: null, advanced: ADVANCED_PER_OSHI_DEFAULT };
+    const advanced = typeof data.advanced_per_oshi_yen === "number" ? data.advanced_per_oshi_yen : ADVANCED_PER_OSHI_DEFAULT;
+    return { paid: data.per_oshi_yen as number, advanced };
   } catch {
-    return null;
+    return { paid: null, advanced: ADVANCED_PER_OSHI_DEFAULT };
   }
 }
 

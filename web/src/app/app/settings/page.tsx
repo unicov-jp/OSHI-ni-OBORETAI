@@ -77,7 +77,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <div className="grid grid-cols-3 gap-2">
           <span
             className={`flex h-10 w-full items-center justify-center rounded-lg px-2 text-[13px] font-bold ${
-              viewer.plan === "master" ? "bg-warn/15 text-warn" : viewer.plan === "paid" ? "bg-brand/15 text-brand" : "bg-sunken text-muted"
+              viewer.plan === "master" ? "bg-warn/15 text-warn" : viewer.plan === "paid" || viewer.plan === "advanced" ? "bg-brand/15 text-brand" : "bg-sunken text-muted"
             }`}
           >
             <span className="truncate">{labels[viewer.plan]}</span>

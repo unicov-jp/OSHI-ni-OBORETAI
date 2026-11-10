@@ -181,7 +181,7 @@ export function FeedView({ view, tabs, activeTab, platform, oshi, sources, items
             {refreshing ? "更新中" : "更新"}
           </Button>
           <Link href="/app/manage" className={buttonClass("secondary", "sm")}>
-            登録を編集
+            SNSを登録
           </Link>
         </header>
         {/* 水面の線: このタブのメンバーカラー */}
@@ -217,7 +217,7 @@ export function FeedView({ view, tabs, activeTab, platform, oshi, sources, items
               body="推しのYouTube・Blog・X・Instagram・TikTokのURLを登録すると、ここにまとまります。"
               action={
                 <Link href="/app/manage" className={buttonClass("primary")}>
-                  推しを登録する
+                  SNSを登録する
                 </Link>
               }
             />

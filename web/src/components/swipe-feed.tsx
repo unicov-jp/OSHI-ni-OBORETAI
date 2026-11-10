@@ -15,7 +15,7 @@ import { toggleFeedMode } from "@/lib/actions/mode";
 import { importAllSns } from "@/lib/actions/sources";
 import { bgmEmbedUrl, isYoutubeShort, parseBgm, PLATFORM_LABEL, youtubeVideoId, type Bgm } from "@/lib/platforms";
 import { buzz } from "@/lib/haptic";
-import { useLongPress } from "@/lib/long-press";
+import { useHold, useLongPress } from "@/lib/long-press";
 import { decodeEntities, hostOf } from "@/lib/text";
 import { addManualPost, listManualPosts, removeManualPost } from "@/lib/actions/manual-posts";
 import { toggleSavedPost } from "@/lib/actions/saved";
@@ -1363,9 +1363,14 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   const frame = useRef<HTMLIFrameElement>(null);
 
   const { activated } = useContext(Controls);
-  const send = useCallback((func: string) => {
-    frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args: [] }), "*");
+  const send = useCallback((func: string, args: unknown[] = []) => {
+    frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args }), "*");
   }, []);
+  // 動画を長押ししている間は2倍速(離すと元の速さに戻す)
+  const fast = useHold(
+    () => send("setPlaybackRate", [2]),
+    () => send("setPlaybackRate", [1]),
+  );
 
   // 音のオン・オフは YouTube の埋め込みに命令を送って切り替える(画面に出ている1件だけ)。
   // 自動再生を確実に始めるため音なしで読み込み、画面を一度でも触っていれば音をオンにする。
@@ -1501,10 +1506,12 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
       {/* 動画の上の透明な層: 上下のスワイプを受け取り、タップで音を切り替える */}
       <button
         type="button"
-        aria-label={muted || !activated ? "音を出す" : "音を消す"}
+        aria-label={muted || !activated ? "音を出す(長押しで2倍速)" : "音を消す(長押しで2倍速)"}
         onClick={tap}
-        className="absolute inset-0 z-[5] cursor-pointer"
+        {...(videoId ? fast.handlers : {})}
+        className="absolute inset-0 z-[5] cursor-pointer select-none [-webkit-touch-callout:none]"
       />
+      {fast.active ? <FastBadge /> : null}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
       <SideActions
         oshi={oshi}
@@ -1837,6 +1844,15 @@ function TweetSlide({ source, id, at, from, oshi, near, live }: {
 }
 
 // TikTok の動画1本。TikTok 公式の動画プレーヤーを全画面で出す。画面に出ている1本だけ読み込み、自動で再生する。
+// 長押しで倍速にしている間、画面の上に出す印
+function FastBadge() {
+  return (
+    <p className="pointer-events-none absolute top-[calc(var(--bar)+0.5rem)] left-1/2 z-[6] -translate-x-1/2 rounded-full bg-black/60 px-4 py-1.5 text-[13px] font-bold whitespace-nowrap text-white">
+      2倍速 ▶▶
+    </p>
+  );
+}
+
 // タップで音のオン・オフ(プレーヤーに命令を送る)
 function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }: {
   source: Source; id: string; at: string | null; from: string; oshi: Oshi; live: boolean; muted: boolean; onToggleSound: () => boolean;
@@ -1844,9 +1860,14 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
   const handle = source.handle.replace(/^@/, "");
   const url = `https://www.tiktok.com/@${handle}/video/${id}`;
   const frame = useRef<HTMLIFrameElement>(null);
-  const send = useCallback((type: string) => {
-    frame.current?.contentWindow?.postMessage({ "x-tiktok-player": true, type }, "*");
+  const send = useCallback((type: string, value?: number) => {
+    frame.current?.contentWindow?.postMessage({ "x-tiktok-player": true, type, ...(value === undefined ? {} : { value }) }, "*");
   }, []);
+  // 動画を長押ししている間は2倍速(離すと元の速さに戻す)。TikTok のプレーヤーが速さの変更に応じない場合は、表示だけになる
+  const fast = useHold(
+    () => send("setPlaybackRate", 2),
+    () => send("setPlaybackRate", 1),
+  );
   const { activated } = useContext(Controls);
   // 画面を初めて触るまでは音なしで再生する(起動直後に音をオンにすると、ブラウザが再生を止めてしまう)。
   // 触ったら音の設定を送り直す
@@ -1905,13 +1926,15 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
         </div>
       </div>
       {/* 動画の上の透明な層: 上下のスワイプを受け取り、タップで音を切り替える */}
-      <button type="button" aria-label={muted ? "音を出す" : "音を消す"} onClick={() => {
+      <button type="button" aria-label={muted ? "音を出す(長押しで2倍速)" : "音を消す(長押しで2倍速)"} onClick={() => {
           const on = onToggleSound();
           send(on ? "unMute" : "mute");
           send("play");
         }}
-        className="absolute inset-0 z-[5] cursor-pointer"
+        {...fast.handlers}
+        className="absolute inset-0 z-[5] cursor-pointer select-none [-webkit-touch-callout:none]"
       />
+      {fast.active ? <FastBadge /> : null}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent" />
       <SideActions oshi={oshi} url={url} title={`${oshi.name}のTikTok`} platform="TikTok" />
       <Info platform="TikTok" oshi={oshi} from={from} time={at ? formatRelative(at) : ""} title={`TikTok @${handle}`} isNew={at ? at > oshi.last_seen_at : false} />

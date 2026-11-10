@@ -15,10 +15,25 @@ export type FeedRow = {
 const HOUR = 60 * 60 * 1000;
 const MAX_ERRORS = 8;
 
-// 次の取得までの間隔。YouTube は定期取得(既定20分)、Blog は推しを開いたときに取りに行くので定期取得の対象外
+// 次の取得までの間隔。YouTube は定期取得(既定20分)
 function intervalMs(): number {
   const minutes = Number(process.env.FETCH_INTERVAL_MINUTES ?? 20);
   return Math.max(15, Number.isFinite(minutes) ? minutes : 20) * 60 * 1000;
+}
+
+// Blog は更新が少ないので、毎日20時(日本時間)に1回だけ取りに行く。次の20時の時刻を返す
+const BLOG_HOUR_JST = Number(process.env.BLOG_FETCH_HOUR_JST ?? 20);
+export function nextBlogFetch(from = Date.now()): Date {
+  const jst = 9 * HOUR;
+  const hour = Number.isFinite(BLOG_HOUR_JST) ? Math.min(23, Math.max(0, BLOG_HOUR_JST)) : 20;
+  const day = Math.floor((from + jst) / (24 * HOUR)) * 24 * HOUR - jst;
+  let next = day + hour * HOUR;
+  if (next <= from) next += 24 * HOUR;
+  return new Date(next);
+}
+
+function nextFetchAt(feed: FeedRow): Date {
+  return feed.platform === "blog" ? nextBlogFetch() : new Date(Date.now() + intervalMs());
 }
 
 // 取得元1件を取りに行き、新着を保存して次回の取得時刻を決める。
@@ -70,7 +85,7 @@ export async function runFeed(
         error_count: 0,
         last_error: null,
         last_fetched_at: new Date().toISOString(),
-        next_fetch_at: new Date(Date.now() + intervalMs()).toISOString(),
+        next_fetch_at: nextFetchAt(feed).toISOString(),
       })
       .eq("id", feed.id);
     await admin.from("oshikatsu_fetch_logs").insert({
@@ -84,7 +99,8 @@ export async function runFeed(
   } catch (error) {
     const message = (error instanceof Error ? error.message : "不明なエラー").slice(0, 500);
     const errorCount = feed.error_count + 1;
-    const backoff = Math.min(24 * HOUR, intervalMs() * 2 ** Math.min(errorCount, 6));
+    // 失敗したとき: YouTube は間隔を空けて取り直す。Blog は次の20時にもう一度
+    const backoff = feed.platform === "blog" ? nextBlogFetch().getTime() - Date.now() : Math.min(24 * HOUR, intervalMs() * 2 ** Math.min(errorCount, 6));
     await admin
       .from("oshikatsu_feeds")
       .update({
@@ -158,7 +174,8 @@ export async function runUserFeeds(admin: SupabaseClient, userId: string, timeLi
   return totals;
 }
 
-// 推しを1人選んだとき: その推しに登録した取得元のうち、前回の取得から10分以上たったものだけを取りに行く。
+// 推しを1人選んだとき: その推しに登録した YouTube のうち、前回の取得から10分以上たったものだけを取りに行く
+// (Blog は毎日20時の定期取得だけ)。
 // 確保した時点で last_fetched_at を進め、続けて押されても二重に取得しない。
 export async function runOshiFeeds(admin: SupabaseClient, userId: string, oshiId: string) {
   const totals = { claimed: 0, ok: 0, failed: 0, added: 0 };
@@ -167,6 +184,7 @@ export async function runOshiFeeds(admin: SupabaseClient, userId: string, oshiId
     .select("feed_id")
     .eq("user_id", userId)
     .eq("oshi_id", oshiId)
+    .eq("platform", "youtube")
     .not("feed_id", "is", null);
   const ids = [...new Set((rows ?? []).map((r) => r.feed_id as string))].slice(0, 30);
   if (ids.length === 0) return totals;

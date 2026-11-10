@@ -972,7 +972,7 @@ $$;
 revoke all on function public.oshikatsu_social_unread_keys() from public, anon;
 grant execute on function public.oshikatsu_social_unread_keys() to authenticated;
 
--- YouTube だけを定期取得の対象にする(Blog は推しを開いたときに取りに行く)
+-- 定期取得: YouTube は20分ごと、Blog は毎日20時(日本時間)。次の取得時刻はアプリが決める
 create or replace function public.oshikatsu_claim_due_feeds(batch int default 30, only_user uuid default null)
 returns setof public.oshikatsu_feeds
 language sql security definer set search_path = '' as $$
@@ -981,7 +981,6 @@ language sql security definer set search_path = '' as $$
   where f.id in (
     select d.id from public.oshikatsu_feeds d
     where d.status = 'active'
-      and d.platform = 'youtube'
       and d.next_fetch_at <= now()
       and exists (
         select 1 from public.oshikatsu_sources s
@@ -997,3 +996,12 @@ revoke all on function public.oshikatsu_claim_due_feeds(int, uuid) from public, 
 
 -- 追加した表・関数をすぐ使えるように、Supabase のAPIの一覧を読み直させる
 notify pgrst, 'reload schema';
+
+-- Blog の次の取得を、次の20時(日本時間)にそろえる
+update public.oshikatsu_feeds
+set next_fetch_at = (
+  date_trunc('day', now() at time zone 'Asia/Tokyo') + interval '20 hours'
+  + case when (now() at time zone 'Asia/Tokyo') >= date_trunc('day', now() at time zone 'Asia/Tokyo') + interval '20 hours'
+      then interval '1 day' else interval '0' end
+) at time zone 'Asia/Tokyo'
+where platform = 'blog' and status = 'active';

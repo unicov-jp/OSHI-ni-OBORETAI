@@ -5,7 +5,7 @@ import { isPublicAddress, safeFetchText } from "@/lib/fetchers/safe-fetch";
 import { embedHandle, parseAccountUrl } from "@/lib/platforms";
 import { recordsToLibrary } from "@/lib/records";
 import { mediaFromPostEmbed, postCodesFromEmbed } from "@/lib/fetchers/instagram";
-import { postsFromSyndication } from "@/lib/fetchers/x";
+import { postsFromSyndication, tweetFromResult } from "@/lib/fetchers/x";
 import { videosFromEmbed } from "@/lib/fetchers/tiktok";
 import { editableFrom, emptySns, mergeIntoRecord, toStoredSns } from "@/lib/oshi-record";
 import { decodeEntities, hostOf } from "@/lib/text";
@@ -143,6 +143,26 @@ async function main() {
     postsFromSyndication('<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"timeline":{"entries":[{"content":{"tweet":{"id_str":"1855000000000000111","created_at":"Mon Nov 10 09:00:00 +0000 2026"}}},{"content":{"tweet":{"id_str":"1855000000000000222","created_at":"Tue Nov 11 09:00:00 +0000 2026"}}}]}}}}</script>').map((p) => p.id),
     ["1855000000000000222", "1855000000000000111"],
   );
+  check(
+    "X 投稿の中身(長い投稿・写真・動画)",
+    tweetFromResult({
+      id_str: "1855000000000000222",
+      text: "short https://t.co/abc",
+      created_at: "Tue Nov 11 09:00:00 +0000 2026",
+      note_tweet: { note_tweet_results: { result: { text: "全文 &amp; 続き" } } },
+      user: { name: "名前", screen_name: "handle", profile_image_url_https: "https://pbs.twimg.com/a.jpg" },
+      mediaDetails: [
+        { type: "photo", media_url_https: "https://pbs.twimg.com/media/p.jpg", original_info: { width: 1200, height: 1600 } },
+        { type: "video", media_url_https: "https://pbs.twimg.com/v.jpg", original_info: { width: 720, height: 1280 }, video_info: { variants: [
+          { content_type: "video/mp4", bitrate: 100, url: "https://video.twimg.com/low.mp4" },
+          { content_type: "video/mp4", bitrate: 900, url: "https://video.twimg.com/high.mp4" },
+        ] } },
+        { type: "photo", media_url_https: "https://evil.example.com/x.jpg" },
+      ],
+    })?.media.map((m) => m.url).concat(["text"]),
+    ["https://pbs.twimg.com/media/p.jpg", "https://video.twimg.com/high.mp4", "text"],
+  );
+  check("X 投稿の本文(長い投稿は全文)", tweetFromResult({ id_str: "1", text: "x", note_tweet: { note_tweet_results: { result: { text: "全文 &amp; 続き" } } } })?.text, "全文 & 続き");
   check("X 投稿なし", postsFromSyndication("<html></html>"), []);
 
   // --- TikTok の動画の番号を読む ---

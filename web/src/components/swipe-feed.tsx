@@ -10,6 +10,7 @@ import { OshiAvatar } from "@/components/oshi-avatar";
 import { formatRelative } from "@/components/ui";
 import { loadMore, markSeen } from "@/lib/actions/oshi";
 import { isYoutubeShort, PLATFORM_LABEL, youtubeVideoId } from "@/lib/platforms";
+import { buzz } from "@/lib/haptic";
 import { decodeEntities, hostOf } from "@/lib/text";
 import type { Oshi, Platform, Source, TimelineItem } from "@/lib/types";
 
@@ -260,6 +261,10 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
       onPointerDown={() => {
         if (!activated) setActivated(true);
       }}
+      // ボタン・リンク(推しのアイコン・更新・開く・共有・ミュート・設定・管理、動画のタップ)を押したら軽く振動させる
+      onClickCapture={(event) => {
+        if ((event.target as HTMLElement).closest("a, button")) buzz();
+      }}
       onTouchStart={(event) => {
         const t = event.touches[0];
         touch.current = { x: t.clientX, y: t.clientY };
@@ -381,7 +386,15 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
                   onToggleSound={() => setMuted((m) => !m)}
                 />
               ) : slide.kind === "tweet" ? (
-                <TweetSlide source={slide.source} id={slide.id} at={slide.at} from={slide.from} oshi={active} near={Math.abs(i - current) <= 1} />
+                <TweetSlide
+                  source={slide.source}
+                  id={slide.id}
+                  at={slide.at}
+                  from={slide.from}
+                  oshi={active}
+                  near={Math.abs(i - current) <= 1}
+                  live={i === current}
+                />
               ) : slide.kind === "insta" ? (
                 <InstaSlide source={slide.source} code={slide.code} from={slide.from} oshi={active} near={Math.abs(i - current) <= 1} />
               ) : (
@@ -746,23 +759,119 @@ function InstaSlide({ source, code, from, oshi, near }: { source: Source; code: 
   );
 }
 
-// X の投稿1件。前後1枚まで先に読み込んでおく
-function TweetSlide({ source, id, at, from, oshi, near }: {
-  source: Source; id: string; at: string; from: string; oshi: Oshi; near: boolean;
+type Tweet = {
+  id: string;
+  text: string;
+  at: string;
+  user: { name: string; handle: string; avatar: string | null };
+  media: { type: "photo" | "video"; url: string; poster: string | null; width: number; height: number }[];
+};
+
+// X の投稿1件。本文(長い投稿も全文)・写真・動画をアプリで直接表示する(「さらに表示」を押す必要がない)。
+// 本文が画面に収まらないときだけ、その中で上下にスクロールでき、端まで行けば次の投稿へスワイプで進む。
+// 中身を読めなかったときは X 公式の投稿埋め込みに戻す。前後1枚まで先に読み込む
+function TweetSlide({ source, id, at, from, oshi, near, live }: {
+  source: Source; id: string; at: string; from: string; oshi: Oshi; near: boolean; live: boolean;
 }) {
   const handle = source.handle.replace(/^@/, "");
   const url = `https://x.com/${handle}/status/${id}`;
+  const { muted } = useContext(Controls);
+  const [tweet, setTweet] = useState<Tweet | null | undefined>(undefined);
+  const video = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (!near || tweet !== undefined) return;
+    let cancelled = false;
+    fetch(`/api/x-tweet?id=${encodeURIComponent(id)}`)
+      .then((r) => (r.ok ? (r.json() as Promise<Tweet>) : null))
+      .then((t) => {
+        if (!cancelled) setTweet(t);
+      })
+      .catch(() => {
+        if (!cancelled) setTweet(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [near, tweet, id]);
+
+  // 動画は画面に出ている間だけ再生する(音はミュートボタンに合わせる)
+  useEffect(() => {
+    const element = video.current;
+    if (!element) return;
+    element.muted = muted;
+    if (live) void element.play().catch(() => {});
+    else element.pause();
+  }, [live, muted, tweet]);
+
   return (
     <>
-      <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 70% 10%, ${oshi.color}88, #000 70%)` }} />
-      <div className="absolute inset-x-0 top-[var(--bar)] bottom-0 overflow-hidden bg-black pb-40">
-        {near ? <XPostEmbed id={id} url={url} theme="dark" /> : <div className="flex h-full items-center justify-center text-sm text-white/50">X</div>}
-      </div>
-      {/* 投稿の上の透明な層: 上下のスワイプを受け取る(開くのは右の「開く」から) */}
-      <div className="absolute inset-0 z-[5]" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent" />
+      <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 70% 10%, ${oshi.color}66, #000 70%)` }} />
+      {tweet ? (
+        <div className="absolute inset-x-0 top-[var(--bar)] bottom-0 overflow-y-auto [scrollbar-width:none]">
+          <article className="min-h-full px-4 pt-3 pr-20 pb-[calc(9rem+env(safe-area-inset-bottom))]">
+            <div className="flex items-center gap-3">
+              {tweet.user.avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={tweet.user.avatar} alt="" referrerPolicy="no-referrer" className="h-10 w-10 shrink-0 rounded-full" />
+              ) : null}
+              <div className="min-w-0">
+                <p className="truncate text-[15px] font-bold">{tweet.user.name}</p>
+                <p className="truncate text-[13px] text-white/60">@{tweet.user.handle}</p>
+              </div>
+            </div>
+            {tweet.text ? (
+              <p className="mt-3 text-[16px] leading-7 whitespace-pre-wrap [overflow-wrap:anywhere]">{tweet.text}</p>
+            ) : null}
+            {tweet.media.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {tweet.media.map((m) =>
+                  m.type === "video" ? (
+                    <video
+                      key={m.url}
+                      ref={video}
+                      src={m.url}
+                      poster={m.poster ?? undefined}
+                      playsInline
+                      loop
+                      muted
+                      preload={near ? "metadata" : "none"}
+                      className="w-full rounded-xl bg-black"
+                      style={{ aspectRatio: `${m.width} / ${m.height}`, maxHeight: "70dvh" }}
+                    />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={m.url}
+                      src={m.url}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      loading="lazy"
+                      className="w-full rounded-xl object-contain"
+                      style={{ aspectRatio: `${m.width} / ${m.height}`, maxHeight: "70dvh" }}
+                    />
+                  ),
+                )}
+              </div>
+            ) : null}
+          </article>
+        </div>
+      ) : (
+        <>
+          <div className="absolute inset-x-0 top-[var(--bar)] bottom-0 overflow-hidden bg-black pb-40">
+            {near && tweet === null ? (
+              <XPostEmbed id={id} url={url} theme="dark" />
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-white/50">X</div>
+            )}
+          </div>
+          {/* 埋め込みの上の透明な層: 上下のスワイプを受け取る */}
+          <div className="absolute inset-0 z-[5]" />
+        </>
+      )}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black to-transparent" />
       <SideActions oshi={oshi} url={url} title={`${oshi.name}のXの投稿`} />
-      <Info platform="X" oshi={oshi} from={from} time={formatRelative(at)} title={`X @${handle}`} isNew={at > oshi.last_seen_at} />
+      <Info platform="X" oshi={oshi} from={from} time={formatRelative(at)} isNew={at > oshi.last_seen_at} />
     </>
   );
 }

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { SwipeFeed } from "@/components/swipe-feed";
 import { EmptyState, buttonClass } from "@/components/ui";
 import { requireViewer } from "@/lib/auth";
-import { getLibrary, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
+import { getLatestByOshi, getLibrary, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
 import { instagramPostCodes } from "@/lib/fetchers/instagram";
 import { tiktokVideos } from "@/lib/fetchers/tiktok";
 import { xPosts } from "@/lib/fetchers/x";
@@ -15,7 +15,17 @@ type Search = Promise<{ tab?: string }>;
 // 新着: 推しを1人選び、その推しと所属グループの新着をまとめて上下のスワイプで見る(推し単位のみ)。
 export default async function FeedPage({ searchParams }: { searchParams: Search }) {
   const params = await searchParams;
-  const [viewer, library, unread] = await Promise.all([requireViewer(), getLibrary(), getUnreadCounts()]);
+  const [viewer, library, unread, latest] = await Promise.all([
+    requireViewer(),
+    getLibrary(),
+    getUnreadCounts(),
+    getLatestByOshi(),
+  ]);
+  // 上部の推しのアイコンは、新着が新しく届いた推しから順に並べる(新着がまだ無い推しは、登録の順で後ろに)
+  const ordered = library.oshi
+    .map((o, index) => ({ o, index, at: latest[o.id] ?? "" }))
+    .sort((a, b) => (a.at === b.at ? a.index - b.index : a.at < b.at ? 1 : -1))
+    .map((x) => x.o);
 
   if (library.oshi.length === 0) {
     return (
@@ -31,7 +41,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     );
   }
 
-  const active = library.oshi.find((o) => o.id === params.tab) ?? library.oshi[0];
+  const active = ordered.find((o) => o.id === params.tab) ?? ordered[0];
   const sources = library.sources.filter((s) => s.oshi_id === active.id);
   const handleOf = (handle: string) => handle.replace(/^@/, "");
 
@@ -58,7 +68,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
       // 推しが変わったら最初の1枚から見せる
       key={active.id}
       isAdmin={viewer.role === "admin"}
-      oshi={library.oshi}
+      oshi={ordered}
       active={active}
       unread={unread}
       sources={sources}

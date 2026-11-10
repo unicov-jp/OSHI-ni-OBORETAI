@@ -71,6 +71,26 @@ export async function getTimeline(options: {
   return (data ?? []) as TimelineItem[];
 }
 
+// 推しごとの、いちばん新しい新着(YouTube・Blog)の日時。上部の推しのアイコンを新着が届いた順に並べるのに使う
+export async function getLatestByOshi(): Promise<Record<string, string>> {
+  if (DEMO) {
+    const latest: Record<string, string> = {};
+    for (const item of demoTimeline) if (!latest[item.oshi_id] || latest[item.oshi_id] < item.published_at) latest[item.oshi_id] = item.published_at;
+    return latest;
+  }
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("oshikatsu_timeline")
+    .select("oshi_id, published_at")
+    .order("published_at", { ascending: false })
+    .limit(1000);
+  const latest: Record<string, string> = {};
+  for (const row of (data ?? []) as { oshi_id: string; published_at: string }[]) {
+    if (!latest[row.oshi_id]) latest[row.oshi_id] = row.published_at;
+  }
+  return latest;
+}
+
 export async function getUnreadCounts(): Promise<Record<string, number>> {
   if (DEMO) {
     const counts: Record<string, number> = {};

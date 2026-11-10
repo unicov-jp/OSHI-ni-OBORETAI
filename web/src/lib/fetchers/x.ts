@@ -78,3 +78,88 @@ export async function xProbe(handle: string): Promise<Record<string, unknown>> {
     return { error: error instanceof Error ? error.message : "取得できませんでした" };
   }
 }
+
+// 投稿1件の中身(本文・写真・動画)を、X の公開の窓口(投稿の埋め込みが使うもの)から読む。保存はせず、1時間だけ覚えておく。
+export type XTweet = {
+  id: string;
+  text: string;
+  at: string;
+  user: { name: string; handle: string; avatar: string | null };
+  media: { type: "photo" | "video"; url: string; poster: string | null; width: number; height: number }[];
+};
+
+const tweetCache = new Map<string, { tweet: XTweet | null; at: number }>();
+
+// 窓口が求める合言葉(投稿の番号から作る。X 公式の埋め込みと同じ作り方)
+function tweetToken(id: string): string {
+  return ((Number(id) / 1e15) * Math.PI).toString(6 ** 2).replace(/(0+|\.)/g, "");
+}
+
+type RawTweet = {
+  id_str?: string;
+  text?: string;
+  created_at?: string;
+  display_text_range?: [number, number];
+  note_tweet?: { note_tweet_results?: { result?: { text?: string } } };
+  user?: { name?: string; screen_name?: string; profile_image_url_https?: string };
+  mediaDetails?: {
+    type?: string;
+    media_url_https?: string;
+    original_info?: { width?: number; height?: number };
+    video_info?: { variants?: { content_type?: string; bitrate?: number; url?: string }[] };
+  }[];
+};
+
+const decode = (value: string) =>
+  value.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+
+export function tweetFromResult(raw: RawTweet): XTweet | null {
+  if (!raw.id_str) return null;
+  let text = raw.note_tweet?.note_tweet_results?.result?.text ?? raw.text ?? "";
+  // 末尾の写真・動画のリンク(https://t.co/…)は本文から外す
+  if (!raw.note_tweet && raw.display_text_range) text = Array.from(text).slice(raw.display_text_range[0], raw.display_text_range[1]).join("");
+  text = decode(text).replace(/\s*https:\/\/t\.co\/\w+\s*$/, "");
+  const media: XTweet["media"] = [];
+  for (const m of raw.mediaDetails ?? []) {
+    const width = m.original_info?.width ?? 1;
+    const height = m.original_info?.height ?? 1;
+    if (m.type === "photo" && m.media_url_https) {
+      media.push({ type: "photo", url: m.media_url_https, poster: null, width, height });
+    } else if ((m.type === "video" || m.type === "animated_gif") && m.video_info?.variants) {
+      const best = m.video_info.variants
+        .filter((v) => v.content_type === "video/mp4" && v.url)
+        .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+      if (best?.url) media.push({ type: "video", url: best.url, poster: m.media_url_https ?? null, width, height });
+    }
+  }
+  const at = raw.created_at ? new Date(raw.created_at) : new Date();
+  return {
+    id: raw.id_str,
+    text,
+    at: Number.isNaN(at.getTime()) ? new Date().toISOString() : at.toISOString(),
+    user: {
+      name: raw.user?.name ?? "",
+      handle: raw.user?.screen_name ?? "",
+      avatar: raw.user?.profile_image_url_https ?? null,
+    },
+    media: media.filter((m) => /^https:\/\/(pbs|video)\.twimg\.com\//.test(m.url)),
+  };
+}
+
+export async function xTweet(id: string): Promise<XTweet | null> {
+  if (!/^\d{5,25}$/.test(id)) return null;
+  const hit = tweetCache.get(id);
+  if (hit && Date.now() - hit.at < TTL) return hit.tweet;
+  try {
+    const page = await safeFetchText(
+      `https://cdn.syndication.twimg.com/tweet-result?id=${id}&lang=ja&token=${tweetToken(id)}`,
+      { headers: { accept: "application/json", "user-agent": HEADERS["user-agent"] } },
+    );
+    const tweet = tweetFromResult(JSON.parse(page.text) as RawTweet);
+    tweetCache.set(id, { tweet, at: Date.now() });
+    return tweet;
+  } catch {
+    tweetCache.set(id, { tweet: null, at: Date.now() - TTL + 10 * 60 * 1000 });
+    return null;
+  }
+}

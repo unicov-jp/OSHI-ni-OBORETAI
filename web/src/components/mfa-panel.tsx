@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Badge, Button, Field, inputClass, Notice } from "@/components/ui";
+import { Button, Field, inputClass, Notice } from "@/components/ui";
 import { DEMO } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 
@@ -87,22 +87,37 @@ export function MfaPanel({ enabled, isAdmin }: { enabled: boolean; isAdmin: bool
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <Badge tone={enabled ? "ok" : "neutral"}>{enabled ? "有効" : "未設定"}</Badge>
-        <p className="text-sm text-muted">
-          {enabled
-            ? "ログインのたびに、認証アプリの6桁コードを確認します。"
-            : "有効にすると、Googleログインのあとに認証アプリの6桁コードを確認します。"}
-        </p>
+      {/* ON/OFF のスイッチ。ON にすると認証アプリの登録、OFF にすると解除の確認に進む */}
+      <div className="flex items-center gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold">二段階認証</p>
+          <p className="text-[13px] text-muted">
+            {enabled
+              ? "ログインのたびに、認証アプリの6桁コードを確認します。"
+              : "ONにすると、Googleログインのあとに認証アプリの6桁コードを確認します。"}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled || Boolean(enrollment)}
+          aria-label="二段階認証"
+          disabled={busy}
+          onClick={() => {
+            if (enabled) setConfirmOff(true);
+            else if (enrollment) setEnrollment(null);
+            else void start();
+          }}
+          className={`relative h-8 w-14 shrink-0 rounded-full transition ${enabled || enrollment ? "bg-brand" : "bg-line"}`}
+        >
+          <span
+            className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${enabled || enrollment ? "left-7" : "left-1"}`}
+          />
+        </button>
+        <span className="w-8 text-[13px] font-semibold">{enabled ? "ON" : "OFF"}</span>
       </div>
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
-
-      {!enabled && !enrollment ? (
-        <Button variant="primary" onClick={start} disabled={busy}>
-          二段階認証を設定する
-        </Button>
-      ) : null}
 
       {enrollment ? (
         <div className="grid gap-5 rounded-lg border border-line p-4 sm:grid-cols-[200px_minmax(0,1fr)]">
@@ -139,24 +154,18 @@ export function MfaPanel({ enabled, isAdmin }: { enabled: boolean; isAdmin: bool
         </div>
       ) : null}
 
-      {enabled ? (
-        confirmOff ? (
-          <div className="space-y-3">
-            {isAdmin ? (
-              <Notice tone="warn">解除すると、設定し直すまで管理画面を開けなくなります。</Notice>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              <Button variant="danger" onClick={turnOff} disabled={busy}>
-                二段階認証を解除する
-              </Button>
-              <Button variant="ghost" onClick={() => setConfirmOff(false)}>
-                やめる
-              </Button>
-            </div>
+      {enabled && confirmOff ? (
+        <div className="space-y-3">
+          {isAdmin ? <Notice tone="warn">OFFにすると、ONにし直すまで管理画面を開けなくなります。</Notice> : null}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="danger" onClick={turnOff} disabled={busy}>
+              OFFにする
+            </Button>
+            <Button variant="ghost" onClick={() => setConfirmOff(false)}>
+              やめる
+            </Button>
           </div>
-        ) : (
-          <Button onClick={() => setConfirmOff(true)}>二段階認証を解除</Button>
-        )
+        </div>
       ) : null}
     </div>
   );

@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition,
+} from "react";
 import { EmbedCard, InstagramPost, XPostEmbed } from "@/components/embeds";
 import { OshiAvatar } from "@/components/oshi-avatar";
 import { formatRelative } from "@/components/ui";
@@ -34,6 +36,18 @@ type Props = {
 const EMBED_PLATFORMS: Platform[] = ["x", "instagram", "tiktok"];
 // 新着(動画・記事)何件ごとに、X・Instagram・TikTok の画面を1枚はさむか
 const EMBED_EVERY = 3;
+
+function readActivation(): boolean {
+  return (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive ?? true;
+}
+function subscribeActivation(notify: () => void): () => void {
+  window.addEventListener("pointerdown", notify, true);
+  window.addEventListener("keydown", notify, true);
+  return () => {
+    window.removeEventListener("pointerdown", notify, true);
+    window.removeEventListener("keydown", notify, true);
+  };
+}
 
 // 右側のボタン(ミュート・設定・管理)が使う共通の状態
 // activated: 画面をもう触ったか。ブラウザは、一度も触っていないうちは自動再生で音を出させない
@@ -208,11 +222,11 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
     }
   };
 
-  const [activated, setActivated] = useState(() =>
-    typeof navigator === "undefined"
-      ? true
-      : ((navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive ?? true),
-  );
+  // ブラウザが音を出させてくれる状態か(画面を一度でも触ったか)。サーバーで作る画面では「触った」とみなし、
+  // ブラウザで実際の状態に合わせる(表示のずれを起こさないため useSyncExternalStore を使う)
+  const browserActivated = useSyncExternalStore(subscribeActivation, readActivation, () => true);
+  const [touched, setActivated] = useState(false);
+  const activated = browserActivated || touched;
   const controls = useMemo(
     () => ({
       muted,
@@ -248,7 +262,7 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
     >
       {/* 上: 推しのタブ(推し単位のみ)と更新 */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-28 bg-gradient-to-b from-black/70 to-transparent" />
-      <nav aria-label="推し" className="scroll-x absolute inset-x-0 top-0 z-30 flex h-16 items-center gap-2 pr-16 pl-3">
+      <nav aria-label="推し" className="scroll-x absolute inset-x-0 top-0 z-30 flex h-16 items-center gap-1 pr-16 pl-2">
         {oshi.map((o) => {
           const on = o.id === active.id;
           const count = unread[o.id] ?? 0;
@@ -261,10 +275,10 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
               aria-current={on ? "page" : undefined}
               aria-label={o.name}
               title={o.name}
-              className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${on ? "" : "opacity-55"}`}
+              className={`relative flex h-14 w-12 shrink-0 items-center justify-center rounded-full ${on ? "" : "opacity-55"}`}
             >
-              <OshiAvatar oshi={o} size={on ? 40 : 34} />
-              {on ? <span className="absolute -bottom-0.5 h-[3px] w-5 rounded-full bg-white" aria-hidden /> : null}
+              <OshiAvatar oshi={o} size={44} />
+              {on ? <span className="absolute bottom-0 h-[3px] w-5 rounded-full bg-white" aria-hidden /> : null}
               {count > 0 ? (
                 <span className="num absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ff2d6f] px-1 text-[10px] font-bold text-white">
                   {count > 99 ? "99+" : count}
@@ -281,12 +295,12 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
         disabled={refreshing}
         aria-label="新着を取りに行く"
         title="新着を取りに行く"
-        className="absolute top-3 right-3 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-white/25 bg-white/10 text-white shadow-[0_4px_16px_rgba(0,0,0,.4)] backdrop-blur-md transition active:scale-90 disabled:opacity-70"
+        className="absolute top-[10px] right-2 z-30 flex h-11 w-11 items-center justify-center rounded-full border border-white/25 bg-white/10 text-white shadow-[0_4px_16px_rgba(0,0,0,.4)] backdrop-blur-md transition active:scale-90 disabled:opacity-70"
       >
         <svg
           viewBox="0 0 24 24"
           aria-hidden
-          className={`h-[18px] w-[18px] ${refreshing ? "animate-spin" : ""}`}
+          className={`h-5 w-5 ${refreshing ? "animate-spin" : ""}`}
           fill="none"
           stroke="currentColor"
           strokeWidth="2.2"
@@ -435,12 +449,7 @@ function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: str
         </span>
         {muted ? "ミュート中" : blocked ? "音を出す" : "音あり"}
       </button>
-      <Link href="/app/settings" className={item}>
-        <span className={round}>
-          <Icon d={ICON.settings} />
-        </span>
-        設定
-      </Link>
+      {/* マスターは「管理」(設定も管理の中から開ける)、それ以外は「設定」 */}
       {isAdmin ? (
         <Link href="/admin" className={item}>
           <span className={round}>
@@ -448,7 +457,14 @@ function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: str
           </span>
           管理
         </Link>
-      ) : null}
+      ) : (
+        <Link href="/app/settings" className={item}>
+          <span className={round}>
+            <Icon d={ICON.settings} />
+          </span>
+          設定
+        </Link>
+      )}
     </div>
   );
 }
@@ -464,7 +480,11 @@ function Info({ platform, oshi, from, time, title, isNew }: {
       </span>
       <p className="mt-2 flex items-center gap-2 text-base font-black">
         <span className="truncate">{oshi.name}</span>
-        {time ? <span className="shrink-0 text-xs font-bold text-white/75">・{time}</span> : null}
+        {time ? (
+          <span className="shrink-0 text-xs font-bold text-white/75" suppressHydrationWarning>
+            ・{time}
+          </span>
+        ) : null}
       </p>
       {label ? <p className="mt-0.5 truncate text-xs font-bold text-white/80">{label}</p> : null}
       {title ? (

@@ -55,18 +55,17 @@ export default async function PricingPage() {
 
       {/* Subscription: 1人あたりの月額と、▼▲で人数を変えたときの月額 */}
       <section className="rounded-2xl border border-brand bg-brand/5 p-5">
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-lg font-bold">{labels.paid}</h2>
-          {perOshi === null ? <span className="text-sm">準備中</span> : null}
-        </div>
         {perOshi !== null ? (
           <>
-            <PriceSimulator perOshi={perOshi} freeOshi={FREE_OSHI} maxOshi={PAID_MAX_OSHI} />
-            <p className="num mt-2 text-xs text-muted">
-              推し{PAID_MAX_OSHI}人まで・SNS 300件まで
-            </p>
+            <PriceSimulator name={labels.paid} perOshi={perOshi} freeOshi={FREE_OSHI} maxOshi={PAID_MAX_OSHI} />
+            <p className="num mt-2 text-xs text-muted">推し{PAID_MAX_OSHI}人まで・SNS 300件まで</p>
           </>
-        ) : null}
+        ) : (
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-lg font-bold">{labels.paid}</h2>
+            <span className="text-sm">準備中</span>
+          </div>
+        )}
       </section>
 
       {/* どちらのプランでも使えること */}

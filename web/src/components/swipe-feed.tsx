@@ -49,25 +49,32 @@ const VERTICAL_FRAME = {
 // 新着(動画・記事)何件ごとに、X・Instagram・TikTok の画面を1枚はさむか
 const EMBED_EVERY = 3;
 
-// 長押し(0.5秒)を見分ける。長押しになったら少し長めに振動させて onLongPress を呼び、そのあとのクリックは止める
+// 長押し(0.7秒)を見分ける。押している間は少し縮め、長押しになったら強めに2回振動させて onLongPress を呼ぶ。
+// そのあとのクリックは止める
+const LONG_PRESS_MS = 700;
+
 function useLongPress(onLongPress: () => void) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
   const fired = useRef(false);
+  const [pressing, setPressing] = useState(false);
   const cancel = () => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
+    setPressing(false);
   };
   return {
     onPointerDown: (event: React.PointerEvent) => {
       fired.current = false;
       start.current = { x: event.clientX, y: event.clientY };
-      cancel();
+      if (timer.current) clearTimeout(timer.current);
+      setPressing(true);
       timer.current = setTimeout(() => {
         fired.current = true;
-        buzz(35);
+        setPressing(false);
+        buzz([60, 50, 80]);
         onLongPress();
-      }, 500);
+      }, LONG_PRESS_MS);
     },
     onPointerMove: (event: React.PointerEvent) => {
       const s = start.current;
@@ -84,7 +91,12 @@ function useLongPress(onLongPress: () => void) {
         fired.current = false;
       }
     },
-    style: { WebkitTouchCallout: "none", userSelect: "none" } as React.CSSProperties,
+    style: {
+      WebkitTouchCallout: "none",
+      userSelect: "none",
+      transform: pressing ? "scale(0.9)" : undefined,
+      transition: `transform ${pressing ? LONG_PRESS_MS : 150}ms ease-out`,
+    } as React.CSSProperties,
   };
 }
 

@@ -170,3 +170,24 @@ export type CalendarEntry = {
     poster: string;
   };
 };
+
+// 保存した投稿(Developer が反応ボタンの短押しで保存する。期間無制限で残る)
+export type SavedPost = {
+  url: string;
+  oshi_id: string;
+  platform: string;
+  title: string;
+  thumbnail_url: string | null;
+  published_at: string | null;
+  created_at: string;
+};
+
+// 保存するときに画面から渡す中身
+export type SavePostInput = {
+  url: string;
+  oshiId: string;
+  platform: string;
+  title: string;
+  thumbnailUrl?: string | null;
+  publishedAt?: string | null;
+};

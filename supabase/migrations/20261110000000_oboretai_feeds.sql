@@ -770,5 +770,38 @@ alter table public.oshikatsu_sources
 update public.oshikatsu_plan_names set label = 'Pro', updated_at = now() where plan = 'paid' and label = 'Starter';
 update public.oshikatsu_plan_names set label = 'Sensitive', updated_at = now() where plan = 'advanced' and label = 'Advanced';
 
+-- 保存した投稿(Developer が反応ボタンの短押しで保存する)。新着の整理(古い新着の削除)とは別に持つので、期間無制限で残る
+create table if not exists public.oshikatsu_saved_posts (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  url text not null check (url ~ '^https?://' and char_length(url) <= 500),
+  oshi_id text not null check (char_length(oshi_id) between 1 and 100),
+  platform text not null check (char_length(platform) between 1 and 40),
+  title text not null default '' check (char_length(title) <= 300),
+  thumbnail_url text check (thumbnail_url is null or (thumbnail_url ~ '^https://' and char_length(thumbnail_url) <= 1000)),
+  published_at timestamptz,
+  created_at timestamptz not null default now(),
+  primary key (user_id, url)
+);
+create index if not exists oshikatsu_saved_posts_user_created_idx on public.oshikatsu_saved_posts (user_id, created_at desc);
+alter table public.oshikatsu_saved_posts enable row level security;
+revoke all on public.oshikatsu_saved_posts from anon, authenticated;
+grant select, insert, delete on public.oshikatsu_saved_posts to authenticated;
+drop policy if exists oshikatsu_saved_posts_select on public.oshikatsu_saved_posts;
+create policy oshikatsu_saved_posts_select on public.oshikatsu_saved_posts for select to authenticated
+  using (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()));
+drop policy if exists oshikatsu_saved_posts_insert on public.oshikatsu_saved_posts;
+create policy oshikatsu_saved_posts_insert on public.oshikatsu_saved_posts for insert to authenticated
+  with check (
+    user_id = (select auth.uid())
+    and (select public.oshikatsu_session_ok())
+    and exists (
+      select 1 from public.oshikatsu_profiles p
+      where p.user_id = (select auth.uid()) and p.plan = 'master' and p.suspended_at is null
+    )
+  );
+drop policy if exists oshikatsu_saved_posts_delete on public.oshikatsu_saved_posts;
+create policy oshikatsu_saved_posts_delete on public.oshikatsu_saved_posts for delete to authenticated
+  using (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()));
+
 -- 追加した表・関数をすぐ使えるように、Supabase のAPIの一覧を読み直させる
 notify pgrst, 'reload schema';

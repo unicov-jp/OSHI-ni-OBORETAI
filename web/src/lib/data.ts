@@ -7,7 +7,7 @@ import { DEMO } from "@/lib/env";
 import { recordsToLibrary, type OshiRecord } from "@/lib/records";
 import { createClient } from "@/lib/supabase/server";
 import type {
-  AdminFeed, AdminStats, AdminUser, AuditLog, Category, FetchLog, Oshi, Platform, Source, TimelineItem,
+  AdminFeed, AdminStats, AdminUser, AuditLog, Category, FetchLog, Oshi, Platform, SavedPost, Source, TimelineItem,
 } from "@/lib/types";
 
 export const PAGE_SIZE = 48;
@@ -198,4 +198,16 @@ export async function getAuditLogs(): Promise<AuditLog[]> {
     detail: row.detail as string,
     created_at: row.created_at as string,
   }));
+}
+
+// 保存した投稿(Developer だけ)。新しく保存した順
+export async function getSavedPosts(limit = 500): Promise<SavedPost[]> {
+  if (DEMO) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("oshikatsu_saved_posts")
+    .select("url, oshi_id, platform, title, thumbnail_url, published_at, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  return (data ?? []) as SavedPost[];
 }

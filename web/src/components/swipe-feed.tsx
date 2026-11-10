@@ -17,7 +17,8 @@ import { isYoutubeShort, PLATFORM_LABEL, youtubeVideoId } from "@/lib/platforms"
 import { buzz } from "@/lib/haptic";
 import { useLongPress } from "@/lib/long-press";
 import { decodeEntities, hostOf } from "@/lib/text";
-import type { CalendarEntry, GalleryPhoto, Oshi, Platform, Source, TimelineItem } from "@/lib/types";
+import { toggleSavedPost } from "@/lib/actions/saved";
+import type { CalendarEntry, GalleryPhoto, Oshi, Platform, SavePostInput, Source, TimelineItem } from "@/lib/types";
 
 // TikTok 風の新着。推しを1人選び、その推しと所属グループの新着(動画・記事・X・Instagram・TikTok)を
 // 1本の流れにして、上下のスワイプで1件ずつ見る。
@@ -47,6 +48,8 @@ type Props = {
   view: FeedView;
   gallery: GalleryPhoto[];
   calendar: CalendarEntry[];
+  // 保存した投稿のURL(Developer だけ。反応ボタンの短押しで保存・解除する)
+  savedUrls: string[];
 };
 
 export type FeedView = "feed" | "gallery" | "calendar";
@@ -134,6 +137,8 @@ function subscribeActivation(notify: () => void): () => void {
 const Controls = createContext<{
   muted: boolean; toggleMute: () => boolean; activated: boolean; activate: () => void; isAdmin: boolean;
   mode: "normal" | "sensitive"; canSensitive: boolean;
+  // 保存した投稿(Developer だけ)。toggleSave は保存したら true、外したら false、失敗したらエラーの文
+  saved: Set<string>; toggleSave: (post: SavePostInput) => Promise<boolean | string>;
 }>({
   muted: false,
   toggleMute: () => false,
@@ -142,6 +147,8 @@ const Controls = createContext<{
   isAdmin: false,
   mode: "normal",
   canSensitive: false,
+  saved: new Set(),
+  toggleSave: async () => "保存できません",
 });
 
 type Slide =
@@ -155,8 +162,9 @@ type Slide =
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
 export function SwipeFeed({
-  isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view: initialView, gallery, calendar,
+  isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view: initialView, gallery, calendar, savedUrls,
 }: Props) {
+  const [saved, setSaved] = useState(() => new Set(savedUrls));
   const [view, setView] = useState<FeedView>(initialView);
   // 切り替えた向き(画面を横から滑り込ませる向き)
   const [enter, setEnter] = useState<"left" | "right" | null>(null);
@@ -442,8 +450,21 @@ export function SwipeFeed({
       isAdmin,
       mode,
       canSensitive,
+      saved,
+      toggleSave: async (post: SavePostInput) => {
+        const result = await toggleSavedPost(post);
+        if (!result.ok || !result.data) return result.ok ? "保存できませんでした" : result.error;
+        const on = result.data.saved;
+        setSaved((prev) => {
+          const next = new Set(prev);
+          if (on) next.add(post.url);
+          else next.delete(post.url);
+          return next;
+        });
+        return on;
+      },
     }),
-    [muted, activated, isAdmin, mode, canSensitive],
+    [muted, activated, isAdmin, mode, canSensitive, saved],
   );
 
   return (
@@ -614,9 +635,9 @@ function fromLabel(from: string): string {
 }
 
 // 右側のボタン(推しのアイコン・開く・共有)
-function Icon({ d }: { d: string[] }) {
+function Icon({ d, filled = false }: { d: string[]; filled?: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden className="h-[22px] w-[22px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" aria-hidden className="h-[22px] w-[22px]" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       {d.map((path) => (
         <path key={path} d={path} />
       ))}
@@ -728,8 +749,10 @@ function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
 
 // 右側のボタン(推しのアイコン・開く・共有・ミュート・設定・管理)
 // reactions: ❤ で出す反応(いいね・リポスト・コメントなど)。各SNSの公式の画面を開いて行う
-function SideActions({ oshi, url, title, platform, reactions }: {
+function SideActions({ oshi, url, title, platform, reactions, thumbnail, publishedAt }: {
   oshi: Oshi; url: string; title: string; platform: string; reactions?: SheetItem[];
+  // 保存するときに一緒に残す写真と投稿日時(分かるものだけ)
+  thumbnail?: string | null; publishedAt?: string | null;
 }) {
   const { muted, toggleMute, isAdmin, activated } = useContext(Controls);
   const router = useRouter();
@@ -737,7 +760,7 @@ function SideActions({ oshi, url, title, platform, reactions }: {
   // 右下の推しのアイコンを長押し: その推しのメニュー(推し情報の更新・新規登録)
   const avatarPress = useLongPress(() => setMenu(true));
   // 設定(管理)ボタンを長押し: 通常 ⇔ Sensitive の推しを切り替える(Sensitive プランだけ)
-  const { mode, canSensitive } = useContext(Controls);
+  const { mode, canSensitive, saved, toggleSave } = useContext(Controls);
   const [modeNote, setModeNote] = useState<string | null>(null);
   const newPress = useLongPress(() => {
     if (!canSensitive) {
@@ -760,6 +783,22 @@ function SideActions({ oshi, url, title, platform, reactions }: {
   const silent = muted || waiting;
   const soundTone = silent ? `bg-[#ff2d6f] text-white${waiting ? " animate-pulse" : ""}` : "bg-white/15";
   const [sheet, setSheet] = useState<"share" | "react" | null>(null);
+  // 反応ボタン: Developer は短押しでこの投稿を保存(期間無制限)・もう一度で解除、長押しで反応のメニュー。
+  // それ以外のプランは短押しで反応のメニュー
+  const isSaved = saved.has(url);
+  const [saving, setSaving] = useState(false);
+  const flash = (text: string) => {
+    setModeNote(text);
+    setTimeout(() => setModeNote(null), 2000);
+  };
+  const save = () => {
+    if (saving) return;
+    setSaving(true);
+    void toggleSave({ url, oshiId: oshi.id, platform, title, thumbnailUrl: thumbnail ?? null, publishedAt: publishedAt ?? null })
+      .then((result) => flash(typeof result === "string" ? result : result ? "保存しました" : "保存を外しました"))
+      .finally(() => setSaving(false));
+  };
+  const reactPress = useLongPress(() => setSheet("react"));
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -793,12 +832,28 @@ function SideActions({ oshi, url, title, platform, reactions }: {
       </button>
       {/* メニューは画面全体のいちばん上に出す(ほかの表示と重ならないよう、ページの最上位に置く) */}
       {menu ? createPortal(<OshiMenu oshi={oshi} onClose={() => setMenu(false)} />, document.body) : null}
-      <button type="button" onClick={() => setSheet("react")} className={item} aria-label="いいね・コメントなど">
-        <span className={round}>
-          <Icon d={ICON.heart} />
-        </span>
-        反応
-      </button>
+      {isAdmin ? (
+        <button
+          type="button"
+          onClick={save}
+          {...reactPress}
+          className={item}
+          aria-pressed={isSaved}
+          aria-label={isSaved ? "保存済み(タップで保存を外す・長押しでいいね・コメントなど)" : "保存する(長押しでいいね・コメントなど)"}
+        >
+          <span className={`${round} ${isSaved ? "bg-[#ff2d6f] text-white" : ""} ${saving ? "opacity-60" : ""}`}>
+            <Icon d={ICON.heart} filled={isSaved} />
+          </span>
+          {isSaved ? "保存済み" : "保存"}
+        </button>
+      ) : (
+        <button type="button" onClick={() => setSheet("react")} className={item} aria-label="いいね・コメントなど">
+          <span className={round}>
+            <Icon d={ICON.heart} />
+          </span>
+          反応
+        </button>
+      )}
       <button type="button" onClick={() => setSheet("share")} className={item} aria-label="開く・共有・リンクをコピー">
         <span className={round}>
           <Icon d={ICON.share} />
@@ -977,7 +1032,7 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
           <p className="truncate text-xs font-extrabold tracking-wide text-white/80">BLOG ・ {hostOf(item.url)}</p>
           <p className="mt-4 line-clamp-[8] text-[26px] leading-[1.45] font-black [text-shadow:0_2px_12px_rgba(0,0,0,.35)]">{title}</p>
         </a>
-        <SideActions oshi={oshi} url={item.url} title={title} platform="Blog" reactions={[{ label: "記事を開いてコメント・いいね", note: hostOf(item.url), href: item.url }]} />
+        <SideActions oshi={oshi} url={item.url} title={title} platform="Blog" thumbnail={item.thumbnail_url} publishedAt={item.published_at} reactions={[{ label: "記事を開いてコメント・いいね", note: hostOf(item.url), href: item.url }]} />
         <Info platform="Blog" oshi={oshi} from={from} time={time} isNew={isNew} />
       </>
     );
@@ -1037,6 +1092,8 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
         url={item.url}
         title={title}
         platform="YouTube"
+        thumbnail={item.thumbnail_url}
+        publishedAt={item.published_at}
         reactions={[
           { label: "YouTubeで高く評価(いいね)・コメント", note: "YouTube を開きます", href: item.url },
           { label: "チャンネル登録", note: "YouTube を開きます", href: `${item.url}${item.url.includes("?") ? "&" : "?"}sub_confirmation=1` },

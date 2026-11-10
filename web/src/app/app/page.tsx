@@ -6,7 +6,7 @@ import { getFeedMode, oshiInMode } from "@/lib/feed-mode";
 import { canUseAdvanced } from "@/lib/plans";
 import { EmptyState, buttonClass } from "@/components/ui";
 import { requireViewer } from "@/lib/auth";
-import { getLatestByOshi, getLibrary, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
+import { getLatestByOshi, getLibrary, getSavedPosts, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
 import { instagramPostCodes } from "@/lib/fetchers/instagram";
 import { tiktokVideos } from "@/lib/fetchers/tiktok";
 import { xPosts } from "@/lib/fetchers/x";
@@ -98,6 +98,8 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     getGallery(active.id),
     getCalendar(active.id),
   ]);
+  // 保存した投稿(Developer だけ。反応ボタンの短押しで保存・解除する)
+  const savedUrls = viewer.plan === "master" ? (await getSavedPosts()).map((p) => p.url) : [];
 
   return (
     <SwipeFeed
@@ -119,6 +121,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
       view={view}
       gallery={gallery}
       calendar={calendar}
+      savedUrls={savedUrls}
     />
   );
 }

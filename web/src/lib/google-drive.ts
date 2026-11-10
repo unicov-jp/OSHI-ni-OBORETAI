@@ -43,3 +43,68 @@ export async function driveAccessToken(supabase: SupabaseClient, userId: string)
   cache.set(userId, { token: body.access_token, exp: Date.now() + (body.expires_in ?? 3600) * 1000 });
   return body.access_token;
 }
+
+// ---- 写真の保存(今のアプリと同じ置き場所: 「推し活手帳」フォルダの中の Gallery・チェキ) ----
+// 権限は drive.file(このアプリが作ったファイル・フォルダだけを扱える)。今のアプリと同じ OAuth クライアントを使うので、
+// 今のアプリが作ったフォルダをそのまま使える。
+
+const ROOT_FOLDER = "推し活手帳";
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+const folderCache = new Map<string, string>();
+
+async function driveJson(token: string, url: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
+  const response = await fetch(url, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, ...(init.headers ?? {}) },
+    signal: AbortSignal.timeout(20_000),
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`drive ${response.status}`);
+  return (await response.json()) as Record<string, unknown>;
+}
+
+async function ensureFolder(token: string, userId: string, name: string, parent: string | null): Promise<string> {
+  const cacheKey = `${userId}:${parent ?? "root"}:${name}`;
+  const hit = folderCache.get(cacheKey);
+  if (hit) return hit;
+  const q = [`name='${name.replace(/'/g, "\\'")}'`, `mimeType='${FOLDER_MIME}'`, "trashed=false", parent ? `'${parent}' in parents` : ""]
+    .filter(Boolean)
+    .join(" and ");
+  const found = await driveJson(
+    token,
+    `https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=${encodeURIComponent(q)}`,
+  );
+  const files = (found.files as { id: string }[] | undefined) ?? [];
+  let id = files[0]?.id;
+  if (!id) {
+    const created = await driveJson(token, "https://www.googleapis.com/drive/v3/files?fields=id", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, mimeType: FOLDER_MIME, ...(parent ? { parents: [parent] } : {}) }),
+    });
+    id = created.id as string;
+  }
+  folderCache.set(cacheKey, id);
+  return id;
+}
+
+// 写真を1枚ドライブへ保存し、記録に入れる置き場所(gdrive:<ファイルID>)を返す
+export async function uploadPhotoToDrive(
+  token: string, userId: string, sub: "Gallery" | "チェキ", fileName: string, bytes: ArrayBuffer, type: string,
+): Promise<string> {
+  const root = await ensureFolder(token, userId, ROOT_FOLDER, null);
+  const parent = await ensureFolder(token, userId, sub, root);
+  const boundary = `oshikatsu${crypto.randomUUID().replace(/-/g, "")}`;
+  const meta = JSON.stringify({ name: fileName, parents: [parent], mimeType: type });
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: ${type}\r\n\r\n`,
+    bytes,
+    `\r\n--${boundary}--`,
+  ]);
+  const result = await driveJson(token, "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
+    method: "POST",
+    headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+    body,
+  });
+  return `gdrive:${result.id as string}`;
+}

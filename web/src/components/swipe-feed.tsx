@@ -7,17 +7,20 @@ import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition,
 } from "react";
 import { EmbedCard, InstagramPost, XPostEmbed } from "@/components/embeds";
+import { CalendarBody, GalleryBody } from "@/components/memories";
 import { OshiAvatar } from "@/components/oshi-avatar";
 import { formatRelative } from "@/components/ui";
 import { loadMore, markSeen } from "@/lib/actions/oshi";
 import { importAllSns } from "@/lib/actions/sources";
 import { isYoutubeShort, PLATFORM_LABEL, youtubeVideoId } from "@/lib/platforms";
 import { buzz } from "@/lib/haptic";
+import { useLongPress } from "@/lib/long-press";
 import { decodeEntities, hostOf } from "@/lib/text";
-import type { Oshi, Platform, Source, TimelineItem } from "@/lib/types";
+import type { CalendarEntry, GalleryPhoto, Oshi, Platform, Source, TimelineItem } from "@/lib/types";
 
 // TikTok 風の新着。推しを1人選び、その推しと所属グループの新着(動画・記事・X・Instagram・TikTok)を
-// 1本の流れにして、上下のスワイプで1件ずつ見る。左右のスワイプで隣の推しに移る。
+// 1本の流れにして、上下のスワイプで1件ずつ見る。
+// 左右のスワイプで画面を切り替える: [ギャラリー] ← 右へスワイプ ― [新着(SNS)] ― 左へスワイプ → [カレンダー]
 // 画面に出ている1件だけを読み込み・再生し(音なしで自動再生)、ほかは静止画にして軽くする。
 
 type Props = {
@@ -36,7 +39,20 @@ type Props = {
   pageSize: number;
   // 今のアプリの登録(本人・グループ)のうち、まだ新着の取得先に取り込んでいないSNSの数
   pendingSns: number;
+  // 開いている画面(新着・ギャラリー・カレンダー)と、その中身
+  view: FeedView;
+  gallery: GalleryPhoto[];
+  calendar: CalendarEntry[];
 };
+
+export type FeedView = "feed" | "gallery" | "calendar";
+// 画面の並び(左から)。右へスワイプすると左の画面へ、左へスワイプすると右の画面へ移る
+const VIEWS: FeedView[] = ["gallery", "feed", "calendar"];
+const VIEW_LABEL: Record<FeedView, string> = { gallery: "ギャラリー", feed: "SNS", calendar: "カレンダー" };
+
+function tabHref(id: string, view: FeedView): string {
+  return `/app?tab=${encodeURIComponent(id)}${view === "feed" ? "" : `&view=${view}`}`;
+}
 
 const EMBED_PLATFORMS: Platform[] = ["x", "instagram", "tiktok"];
 
@@ -49,71 +65,18 @@ const VERTICAL_FRAME = {
 // 新着(動画・記事)何件ごとに、X・Instagram・TikTok の画面を1枚はさむか
 const EMBED_EVERY = 3;
 
-// 長押し(0.7秒)を見分ける。押している間は少し縮め、長押しになったら強めに2回振動させて onLongPress を呼ぶ。
-// そのあとのクリックは止める
-const LONG_PRESS_MS = 700;
-
-function useLongPress(onLongPress: () => void) {
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const start = useRef<{ x: number; y: number } | null>(null);
-  const fired = useRef(false);
-  const [pressing, setPressing] = useState(false);
-  const cancel = () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    setPressing(false);
-  };
-  return {
-    onPointerDown: (event: React.PointerEvent) => {
-      fired.current = false;
-      start.current = { x: event.clientX, y: event.clientY };
-      if (timer.current) clearTimeout(timer.current);
-      setPressing(true);
-      timer.current = setTimeout(() => {
-        fired.current = true;
-        setPressing(false);
-        buzz([60, 50, 80]);
-        onLongPress();
-      }, LONG_PRESS_MS);
-    },
-    onPointerMove: (event: React.PointerEvent) => {
-      const s = start.current;
-      if (s && Math.hypot(event.clientX - s.x, event.clientY - s.y) > 10) cancel();
-    },
-    onPointerUp: cancel,
-    onPointerLeave: cancel,
-    onPointerCancel: cancel,
-    onContextMenu: (event: React.MouseEvent) => event.preventDefault(),
-    onClickCapture: (event: React.MouseEvent) => {
-      if (fired.current) {
-        event.preventDefault();
-        event.stopPropagation();
-        fired.current = false;
-      }
-    },
-    style: {
-      WebkitTouchCallout: "none",
-      userSelect: "none",
-      transform: pressing ? "scale(0.9)" : undefined,
-      transition: `transform ${pressing ? LONG_PRESS_MS : 150}ms ease-out`,
-    } as React.CSSProperties,
-  };
-}
-
-// 推しのアイコン: タップでその推しの新着、長押しでその推しのSNSの登録
 // 上の並びは「いちばん左の推し」を再生する。ほかのアイコンをタップすると、そのアイコンが左端まで動いて切り替わる
-function OshiTab({ oshi: o, on, count, busy, onRefresh, onSelect, tabRef }: {
-  oshi: Oshi; on: boolean; count: number; busy: boolean; onRefresh?: () => void; onSelect: () => void;
+function OshiTab({ oshi: o, view, on, count, busy, onRefresh, onSelect, tabRef }: {
+  oshi: Oshi; view: FeedView; on: boolean; count: number; busy: boolean; onRefresh?: () => void; onSelect: () => void;
   tabRef?: React.Ref<HTMLAnchorElement>;
 }) {
   const router = useRouter();
   const press = useLongPress(() => router.push(`/app/manage?sns=${encodeURIComponent(o.id)}`));
   return (
     <Link
-      href={`/app?tab=${encodeURIComponent(o.id)}`}
+      href={tabHref(o.id, view)}
       replace
       ref={tabRef}
-      data-oshi={o.id}
       aria-current={on ? "page" : undefined}
       aria-label={`${o.name}(タップで新着を取りに行く・長押しでSNSを登録)`}
       title={o.name}
@@ -122,7 +85,7 @@ function OshiTab({ oshi: o, on, count, busy, onRefresh, onSelect, tabRef }: {
       // 選んでいる推しをもう一度タップしたときは、その推しの新着を取りに行く
       onClick={(event) => {
         event.preventDefault();
-        if (on) onRefresh?.();
+        if (onRefresh) onRefresh();
         else onSelect();
       }}
       style={{ ...press.style, width: "var(--slot)", height: "var(--slot)" }}
@@ -179,7 +142,7 @@ type Slide =
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
 export function SwipeFeed({
-  isAdmin, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns,
+  isAdmin, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view, gallery, calendar,
 }: Props) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
@@ -209,6 +172,14 @@ export function SwipeFeed({
   const activeTab = useRef<HTMLAnchorElement>(null);
   const tabs = useRef<HTMLElement>(null);
 
+  // 上の並びは切れ目なくループさせる: 推しの並びを何周か続けて置き、真ん中の周の「再生中の推し」を左端にする。
+  // 推しを切り替えると画面が作り直され、また真ん中の周から始まるので、どちらへ動かしても端に着かない
+  const n = oshi.length;
+  const laps = n <= 1 ? 1 : Math.max(3, Math.ceil(15 / n));
+  const activeIndex = Math.max(0, oshi.findIndex((o) => o.id === active.id));
+  const home = Math.floor(laps / 2) * n + activeIndex;
+  const strip = useMemo(() => Array.from({ length: n * laps }, (_, i) => oshi[i % n]), [oshi, n, laps]);
+
   // 再生中の推しを、上の並びのいちばん左に置く
   useEffect(() => {
     const nav = tabs.current;
@@ -216,22 +187,45 @@ export function SwipeFeed({
     if (nav && tab) nav.scrollLeft = tab.offsetLeft;
   }, [active.id]);
 
-  // 上の並びを動かし終えたら、いちばん左に来た推しに切り替える(切り替えた推しは開いたときに新着を取りに行く)
+  // 上の並び: 動かしている間も、いちばん左に来た推しをすぐ選んだ表示にし(軽く振動)、
+  // 動きが止まったらその推しに切り替える(切り替えた推しは開いたときに新着を取りに行く)。
+  // 切り替えの読み込み中は、そのアイコンにくるくるを出す
+  const [leftIndex, setLeftIndex] = useState(home);
+  const [switching, startSwitch] = useTransition();
+  const target = useRef(active.id);
+  const switchTo = useCallback(
+    (id: string) => {
+      if (id === target.current) return;
+      target.current = id;
+      startSwitch(() => router.replace(tabHref(id, view), { scroll: false }));
+    },
+    [router, view],
+  );
   useEffect(() => {
     const nav = tabs.current;
     if (!nav) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let last = home;
+    const leftmost = () => {
+      const slot = (nav.firstElementChild as HTMLElement | null)?.offsetWidth ?? 0;
+      if (slot === 0) return null;
+      return Math.min(strip.length - 1, Math.max(0, Math.round(nav.scrollLeft / slot)));
+    };
     const settle = () => {
       clearTimeout(timer);
-      const slot = (nav.firstElementChild as HTMLElement | null)?.offsetWidth ?? 0;
-      if (slot === 0) return;
-      const next = oshi[Math.min(oshi.length - 1, Math.max(0, Math.round(nav.scrollLeft / slot)))];
-      if (next && next.id !== active.id) router.replace(`/app?tab=${encodeURIComponent(next.id)}`, { scroll: false });
+      const index = leftmost();
+      if (index !== null) switchTo(strip[index].id);
     };
-    // scrollend に対応していないブラウザでは、動きが止まってから少し待って切り替える
     const onScroll = () => {
+      const index = leftmost();
+      if (index !== null && index !== last) {
+        last = index;
+        setLeftIndex(index);
+        buzz(8);
+      }
+      // scrollend に対応していないブラウザでは、動きが止まってから少し待って切り替える
       clearTimeout(timer);
-      timer = setTimeout(settle, 180);
+      timer = setTimeout(settle, 120);
     };
     nav.addEventListener("scroll", onScroll, { passive: true });
     nav.addEventListener("scrollend", settle);
@@ -240,15 +234,19 @@ export function SwipeFeed({
       nav.removeEventListener("scroll", onScroll);
       nav.removeEventListener("scrollend", settle);
     };
-  }, [oshi, active.id, router]);
+  }, [strip, home, switchTo]);
 
-  // アイコンのタップ: そのアイコンを左端まで動かす(動き終えたら上の処理で切り替わる)
-  const selectTab = useCallback((target: string) => {
-    const nav = tabs.current;
-    const tab = nav?.querySelector<HTMLElement>(`[data-oshi="${CSS.escape(target)}"]`);
-    if (!nav || !tab) return;
-    nav.scrollTo({ left: tab.offsetLeft, behavior: "smooth" });
-  }, []);
+  // アイコンのタップ: すぐに切り替えを始め、並びはそのアイコンが左端に来るまで動かす
+  const selectTab = useCallback(
+    (index: number) => {
+      const nav = tabs.current;
+      const tab = nav?.children[index] as HTMLElement | undefined;
+      setLeftIndex(index);
+      switchTo(strip[index].id);
+      if (nav && tab) nav.scrollTo({ left: tab.offsetLeft, behavior: "smooth" });
+    },
+    [strip, switchTo],
+  );
 
   // 登録したアカウントが「本人」か「どのグループ」のものか(今のアプリの登録から分かる)
   const fromOf = useMemo(() => {
@@ -353,15 +351,14 @@ export function SwipeFeed({
     return () => clearTimeout(timer);
   }, [active.id, unreadCount]);
 
-  // 左右のスワイプで隣の推しへ
-  const index = oshi.findIndex((o) => o.id === active.id);
+  // 左右のスワイプで画面を切り替える(ギャラリー ← 新着 → カレンダー)。推しの切り替えは上のアイコンで行う
   const go = useCallback(
     (step: number) => {
-      const next = oshi[index + step];
-      // 推しのアイコンと同じく履歴は置き換える(戻る操作で推しを1人ずつさかのぼらないように)
-      if (next) router.replace(`/app?tab=${encodeURIComponent(next.id)}`);
+      const next = VIEWS[VIEWS.indexOf(view) + step];
+      // 履歴は置き換える(戻る操作で画面を1つずつさかのぼらないように)
+      if (next) router.replace(tabHref(active.id, next), { scroll: false });
     },
-    [oshi, index, router],
+    [view, active.id, router],
   );
   const touch = useRef<{ x: number; y: number } | null>(null);
 
@@ -388,10 +385,11 @@ export function SwipeFeed({
     }
   }, [active.id, router]);
   useEffect(() => {
-    // 画面を描き終えてから取りに行く
+    // 画面を描き終えてから取りに行く(新着の画面のときだけ)
+    if (view !== "feed") return;
     const timer = setTimeout(() => void refresh(), 0);
     return () => clearTimeout(timer);
-  }, [refresh]);
+  }, [refresh, view]);
 
   // ブラウザが音を出させてくれる状態か(画面を一度でも触ったか)。サーバーで作る画面では「触った」とみなし、
   // ブラウザで実際の状態に合わせる(表示のずれを起こさないため useSyncExternalStore を使う)
@@ -451,24 +449,23 @@ export function SwipeFeed({
         className="absolute top-[env(safe-area-inset-top)] z-30 flex h-[calc(var(--slot)+8px)] snap-x snap-mandatory items-center overflow-x-auto [scrollbar-width:none]"
         style={{ width: "calc(var(--slot) * 5)", left: "calc((100vw - var(--slot) * 5) / 2)" }}
       >
-        {oshi.map((o) => {
-          const on = o.id === active.id;
+        {strip.map((o, i) => {
+          const on = i === leftIndex;
           const count = unread[o.id] ?? 0;
           return (
             <OshiTab
-              key={o.id}
+              key={`${o.id}-${i}`}
               oshi={o}
+              view={view}
               on={on}
               count={count}
-              busy={on && refreshing}
-              onRefresh={on ? () => void refresh() : undefined}
-              onSelect={() => selectTab(o.id)}
-              tabRef={on ? activeTab : undefined}
+              busy={on && (refreshing || switching)}
+              onRefresh={i === home ? () => void refresh() : undefined}
+              onSelect={() => selectTab(i)}
+              tabRef={i === home ? activeTab : undefined}
             />
           );
         })}
-        {/* 最後の推しも左端まで動かせるように、右に余白を置く */}
-        <span aria-hidden className="shrink-0" style={{ width: "calc(var(--slot) * 4)", height: 1 }} />
       </nav>
       {note ? (
         <p className="absolute top-[var(--bar)] left-1/2 z-30 -translate-x-1/2 rounded-full bg-white px-4 py-1.5 text-[13px] font-bold whitespace-nowrap text-black">
@@ -476,7 +473,23 @@ export function SwipeFeed({
         </p>
       ) : null}
 
-      {slides.length === 0 ? (
+      {/* 今の画面(ギャラリー・SNS・カレンダー)。左右のスワイプで切り替わる */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute top-[calc(var(--bar)+4px)] left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 text-[11px] font-bold [text-shadow:0_1px_3px_rgba(0,0,0,.7)]"
+      >
+        {VIEWS.map((v) => (
+          <span key={v} className={v === view ? "text-white" : "text-white/40"}>
+            {VIEW_LABEL[v]}
+          </span>
+        ))}
+      </div>
+
+      {view === "gallery" ? (
+        <GalleryBody key={`g-${active.id}`} oshi={active} photos={gallery} />
+      ) : view === "calendar" ? (
+        <CalendarBody key={`c-${active.id}`} oshi={active} entries={calendar} />
+      ) : slides.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
           <OshiAvatar oshi={active} size={72} />
           <p className="text-lg font-bold">{active.name}</p>
@@ -651,7 +664,7 @@ function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
             </li>
           ))}
         </ul>
-        <p className="mt-3 px-1 text-xs text-white/45">LIVE・チェキ・物販・集計などの記録も、ここから使えるようにしていきます。</p>
+        <p className="mt-3 px-1 text-xs text-white/45">ギャラリーは右へ、カレンダー(LIVE・チェキ)は左へスワイプで開けます。</p>
         <button type="button" onClick={onClose} className="mt-3 h-12 w-full rounded-2xl bg-white/10 text-[15px] font-semibold">
           閉じる
         </button>

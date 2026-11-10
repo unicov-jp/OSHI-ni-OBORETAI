@@ -131,3 +131,22 @@ export type AuditLog = {
   detail: string;
   created_at: string;
 };
+
+// ギャラリーの写真(推しのギャラリーと、その推しのチェキ)
+export type GalleryPhoto = {
+  key: string;
+  src: string;
+  kind: "gallery" | "cheki";
+  // チェキはイベント名と日付
+  title: string;
+  date: string;
+};
+
+// カレンダーの記録(LIVE・チェキ)
+export type CalendarEntry = {
+  id: string;
+  type: "live" | "cheki";
+  date: string;
+  title: string;
+  sub: string;
+};

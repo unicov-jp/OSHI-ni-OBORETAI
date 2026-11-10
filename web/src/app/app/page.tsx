@@ -1,18 +1,20 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { SwipeFeed } from "@/components/swipe-feed";
+import { SwipeFeed, type FeedView } from "@/components/swipe-feed";
 import { EmptyState, buttonClass } from "@/components/ui";
 import { requireViewer } from "@/lib/auth";
 import { getLatestByOshi, getLibrary, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
 import { instagramPostCodes } from "@/lib/fetchers/instagram";
 import { tiktokVideos } from "@/lib/fetchers/tiktok";
 import { xPosts } from "@/lib/fetchers/x";
+import { getCalendar, getGallery } from "@/lib/memories";
 
 export const metadata: Metadata = { title: "新着" };
 
-type Search = Promise<{ tab?: string }>;
+type Search = Promise<{ tab?: string; view?: string }>;
 
 // 新着: 推しを1人選び、その推しと所属グループの新着をまとめて上下のスワイプで見る(推し単位のみ)。
+// 左右のスワイプで、その推しのギャラリー(?view=gallery)・カレンダー(?view=calendar)に切り替える。
 export default async function FeedPage({ searchParams }: { searchParams: Search }) {
   const params = await searchParams;
   const [viewer, library, unread, latest] = await Promise.all([
@@ -50,23 +52,29 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     return total + new Set(o.sns.map((s) => normalize(s.url)).filter((url) => !registered.has(url))).size;
   }, 0);
   const handleOf = (handle: string) => handle.replace(/^@/, "");
+  const view: FeedView = params.view === "gallery" || params.view === "calendar" ? params.view : "feed";
+  const feed = view === "feed";
 
   // Instagram・X・TikTok は投稿1件ずつ見せるため、最新の投稿を読む(読めなければアカウントの表示)
-  const [items, instagram, x, tiktok] = await Promise.all([
-    getTimeline({ oshiIds: [active.id] }),
+  // ギャラリー・カレンダーのときは、SNSの投稿は読まない(その画面の中身だけを読む)
+  const social = feed ? sources : [];
+  const [items, instagram, x, tiktok, gallery, calendar] = await Promise.all([
+    feed ? getTimeline({ oshiIds: [active.id] }) : Promise.resolve([]),
     Promise.all(
-      sources
+      social
         .filter((s) => s.platform === "instagram")
         .map(async (s) => [s.id, await instagramPostCodes(handleOf(s.handle))] as const),
     ).then((pairs) => Object.fromEntries(pairs)),
     Promise.all(
-      sources.filter((s) => s.platform === "x").map(async (s) => [s.id, await xPosts(handleOf(s.handle))] as const),
+      social.filter((s) => s.platform === "x").map(async (s) => [s.id, await xPosts(handleOf(s.handle))] as const),
     ).then((pairs) => Object.fromEntries(pairs)),
     Promise.all(
-      sources
+      social
         .filter((s) => s.platform === "tiktok")
         .map(async (s) => [s.id, await tiktokVideos(handleOf(s.handle))] as const),
     ).then((pairs) => Object.fromEntries(pairs)),
+    view === "gallery" ? getGallery(active.id) : Promise.resolve([]),
+    view === "calendar" ? getCalendar(active.id) : Promise.resolve([]),
   ]);
 
   return (
@@ -84,6 +92,9 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
       items={items}
       pageSize={PAGE_SIZE}
       pendingSns={pendingSns}
+      view={view}
+      gallery={gallery}
+      calendar={calendar}
     />
   );
 }

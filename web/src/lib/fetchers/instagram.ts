@@ -20,18 +20,35 @@ export function postCodesFromEmbed(html: string): string[] {
   return codes.slice(0, MAX_POSTS);
 }
 
+// 読み取りの様子(マスター向けの確認用)。中身は返さず、転送先・大きさ・見つかった件数だけ
+export async function instagramProbe(handle: string): Promise<Record<string, unknown>> {
+  if (!/^[A-Za-z0-9._]{1,30}$/.test(handle)) return { error: "IDの形が正しくありません" };
+  try {
+    const page = await safeFetchText(`https://www.instagram.com/${handle}/embed/`, { headers: HEADERS });
+    return {
+      finalUrl: page.finalUrl,
+      contentType: page.contentType,
+      bytes: page.text.length,
+      loginWall: /accounts\/login|loginForm/i.test(page.text),
+      codes: postCodesFromEmbed(page.text).length,
+    };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "取得できませんでした" };
+  }
+}
+
+const HEADERS = {
+  accept: "text/html",
+  "accept-language": "ja,en;q=0.8",
+  "user-agent": "Mozilla/5.0 (compatible; OshiOboretaiBot/1.0)",
+};
+
 export async function instagramPostCodes(handle: string): Promise<string[]> {
   if (!/^[A-Za-z0-9._]{1,30}$/.test(handle)) return [];
   const hit = cache.get(handle);
   if (hit && Date.now() - hit.at < TTL) return hit.codes;
   try {
-    const page = await safeFetchText(`https://www.instagram.com/${handle}/embed/`, {
-      headers: {
-        accept: "text/html",
-        "accept-language": "ja,en;q=0.8",
-        "user-agent": "Mozilla/5.0 (compatible; OshiOboretaiBot/1.0)",
-      },
-    });
+    const page = await safeFetchText(`https://www.instagram.com/${handle}/embed/`, { headers: HEADERS });
     const codes = postCodesFromEmbed(page.text);
     cache.set(handle, { codes, at: Date.now() });
     return codes;

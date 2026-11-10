@@ -466,7 +466,13 @@ function EmbedSlide({ source, from, oshi, live }: { source: Source; from: string
         oshi={oshi}
         from={from}
         time=""
-        title={source.handle ? `${PLATFORM_LABEL[source.platform]} ${source.handle} の最新の投稿` : undefined}
+        title={
+          source.platform === "instagram"
+            ? `Instagram ${source.handle}(投稿を1件ずつ読み込めなかったため、アカウントを表示しています)`
+            : source.handle
+              ? `${PLATFORM_LABEL[source.platform]} ${source.handle} の最新の投稿`
+              : undefined
+        }
         isNew={false}
       />
     </>

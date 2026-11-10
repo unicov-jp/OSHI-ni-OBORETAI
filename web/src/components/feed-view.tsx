@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition, type CSSProperties } from "react";
 import { Dialog } from "@/components/dialog";
 import { EmbedCard } from "@/components/embeds";
+import { OshiAvatar } from "@/components/oshi-avatar";
 import {
   Badge, Button, buttonClass, Clamp, EmptyState, formatDateTime, formatRelative, Light, Notice, PlatformTag,
 } from "@/components/ui";
@@ -180,7 +181,11 @@ export function FeedView({ view, tabs, activeTab, platform, oshi, sources, items
                   active ? "border-line bg-surface" : "border-transparent hover:bg-sunken"
                 }`}
               >
-                <Lights colors={tab.colors.slice(0, 3)} className="h-7 w-[5px]" />
+                {tab.oshiIds.length === 1 && tab.id !== "all" ? (
+                  <OshiAvatar oshi={oshiById.get(tab.oshiIds[0])} size={28} />
+                ) : (
+                  <Lights colors={tab.colors.slice(0, 3)} className="h-7 w-[5px]" />
+                )}
                 <Clamp className={`flex-1 text-sm ${active ? "font-semibold" : "font-medium text-muted"}`}>{tab.name}</Clamp>
                 <Unread count={tab.unread} />
               </Link>
@@ -393,9 +398,9 @@ function ItemCard({ item, owners, onOpen }: { item: TimelineItem; owners: Oshi[]
       <span className="flex h-[92px] w-full shrink-0 flex-col justify-between p-3">
         <Clamp lines={2} className="text-sm leading-5 font-medium">{decodeEntities(item.title)}</Clamp>
         <span className="flex items-center gap-2 text-xs text-muted">
-          <span className="flex shrink-0 gap-[2px]">
+          <span className="flex shrink-0 -space-x-1">
             {(owners.length > 0 ? owners.slice(0, 3) : [undefined]).map((o, i) => (
-              <Light key={o?.id ?? i} color={o?.color ?? "var(--line)"} className="h-3 w-3" />
+              <OshiAvatar key={o?.id ?? i} oshi={o} size={18} />
             ))}
           </span>
           <Clamp className="flex-1">{names}</Clamp>

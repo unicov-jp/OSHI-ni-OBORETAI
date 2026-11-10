@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
+import { OshiAvatar } from "@/components/oshi-avatar";
 import {
-  Badge, Button, Clamp, EmptyState, inputClass, Light, Notice,
+  Badge, Button, Clamp, EmptyState, inputClass, Notice,
 } from "@/components/ui";
 import { addSource, deleteSource, importAllSns } from "@/lib/actions/sources";
 import { atLimit, limitText } from "@/lib/plans";
@@ -64,7 +65,7 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
               const count = sources.filter((s) => s.oshi_id === o.id).length;
               return (
                 <li key={o.id} className="flex h-[76px] min-w-0 items-center gap-4 rounded-xl border border-line bg-surface px-4">
-                  <Light color={o.color} className="h-11 w-[6px]" />
+                  <OshiAvatar oshi={o} size={44} />
                   <div className="min-w-0 flex-1">
                     <Clamp className="text-[15px] font-semibold">{o.name}</Clamp>
                     <Clamp className="text-[13px] text-muted">{labels || "所属なし"}</Clamp>

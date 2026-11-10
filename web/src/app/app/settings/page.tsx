@@ -9,6 +9,7 @@ import { limitText, PLAN_LABEL } from "@/lib/plans";
 import { DEMO } from "@/lib/env";
 import { billingEnabled, proPriceLabel } from "@/lib/stripe";
 import { serverKeyCheck } from "@/lib/diagnostics";
+import { driveAccessToken, driveConfigured } from "@/lib/google-drive";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "設定" };
@@ -38,6 +39,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const [price, subscription] = await Promise.all([DEMO ? null : proPriceLabel(), subscriptionInfo()]);
   const banner = notice ? NOTICES[notice] : undefined;
   const keyCheck = !DEMO && viewer.plan === "master" ? await serverKeyCheck(viewer.id) : null;
+  const driveCheck = keyCheck
+    ? !driveConfigured()
+      ? "NG: GOOGLE_OAUTH_CLIENT_ID・GOOGLE_OAUTH_CLIENT_SECRET が設定されていません"
+      : (await driveAccessToken(await createClient(), viewer.id))
+        ? "OK: 今のアプリの Google ドライブ接続を使えます"
+        : "NG: 今のアプリで Google ドライブに接続していないか、接続が切れています"
+    : null;
   const isPro = viewer.plan === "paid";
 
   return (
@@ -75,6 +83,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             <dd className={`[overflow-wrap:anywhere] ${keyCheck.ok ? "text-ok" : "text-danger"}`}>
               {keyCheck.ok ? "OK" : "NG"}: {keyCheck.detail}
             </dd>
+            <dt className="text-muted">推しの写真</dt>
+            <dd className={`[overflow-wrap:anywhere] ${driveCheck?.startsWith("OK") ? "text-ok" : "text-danger"}`}>{driveCheck}</dd>
           </dl>
         </Section>
       ) : null}

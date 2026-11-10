@@ -22,6 +22,8 @@ export type Oshi = {
   agency_id: string | null;
   genre_id: string | null;
   last_seen_at: string;
+  // 今のアプリで推しに設定してある写真の版(写真が無ければ null)。/api/oshi-photo/<id>?v=<版> で表示する
+  photo: string | null;
   // 今のアプリで推しに登録してあるSNSのURL(取り込みの候補)
   sns: { platform: Platform; url: string; from: string }[];
 };

@@ -1,0 +1,113 @@
+// 取得まわりの自己診断。 実行: npm run selftest
+// 外部への通信は行わない(遮断の判定と、フィードの解析だけを確かめる)。
+import { parseFeedXml } from "@/lib/fetchers/rss";
+import { isPublicAddress, safeFetchText } from "@/lib/fetchers/safe-fetch";
+import { embedHandle, parseAccountUrl } from "@/lib/platforms";
+
+let failed = 0;
+function check(name: string, actual: unknown, expected: unknown) {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  if (!ok) failed++;
+  console.log(`${ok ? "ok  " : "NG  "} ${name}${ok ? "" : ` -> ${JSON.stringify(actual)} (期待 ${JSON.stringify(expected)})`}`);
+}
+
+async function blocked(url: string): Promise<boolean> {
+  try {
+    await safeFetchText(url);
+    return false;
+  } catch (error) {
+    return (error as Error).constructor.name === "SafeFetchError";
+  }
+}
+
+async function main() {
+  // --- 到達してはいけないアドレスの判定 ---
+  for (const address of [
+    "127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0",
+    "::1", "fe80::1", "fc00::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1",
+  ]) {
+    check(`非公開アドレスを拒否 ${address}`, isPublicAddress(address), false);
+  }
+  for (const address of ["8.8.8.8", "93.184.216.34", "2606:4700:4700::1111"]) {
+    check(`公開アドレスを許可 ${address}`, isPublicAddress(address), true);
+  }
+
+  for (const url of [
+    "http://127.0.0.1/", "http://localhost/", "http://169.254.169.254/latest/meta-data/", "http://[::1]/",
+    "http://2130706433/", "http://0x7f.1/", "https://example.com:8443/", "ftp://example.com/",
+    "https://user:pass@example.com/", "http://intranet/", "http://db.internal/",
+  ]) {
+    check(`取得を拒否 ${url}`, await blocked(url), true);
+  }
+
+  // --- フィードの解析 ---
+  const rss = parseFeedXml(
+    `<?xml version="1.0"?><rss version="2.0"><channel><title>テスト &amp; Blog</title><link>https://b.example/</link>
+     <item><title><![CDATA[<b>記事1</b>]]></title><link>https://b.example/1</link><guid>g1</guid><pubDate>Tue, 03 Nov 2026 10:00:00 +0900</pubDate></item>
+     <item><title>記事2</title><link>/2</link><pubDate>Mon, 02 Nov 2026 10:00:00 +0900</pubDate></item>
+     <item><title>危険なリンク</title><link>javascript:alert(1)</link><guid>g3</guid></item>
+     <item><title>重複</title><link>https://b.example/1</link><guid>g1</guid></item>
+     </channel></rss>`,
+    "https://b.example/feed",
+  );
+  check("RSS: タイトル", rss.title, "テスト & Blog");
+  check("RSS: 件数(不正リンクと重複を除外)", rss.items.length, 2);
+  check("RSS: HTMLタグを除去", rss.items[0].title, "記事1");
+  check("RSS: 相対リンクを解決", rss.items[1].url, "https://b.example/2");
+  check("RSS: 日時", rss.items[0].publishedAt, "2026-11-03T01:00:00.000Z");
+
+  const atom = parseFeedXml(
+    `<feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015">
+     <title>チャンネル</title><link rel="self" href="https://www.youtube.com/feeds/videos.xml?channel_id=UCx"/>
+     <link rel="alternate" href="https://www.youtube.com/channel/UCx"/>
+     <entry><id>yt:video:abcdefghijk</id><yt:videoId>abcdefghijk</yt:videoId><title>動画1</title>
+       <link rel="alternate" href="https://www.youtube.com/watch?v=abcdefghijk"/><published>2026-11-01T00:00:00+00:00</published></entry>
+     </feed>`,
+    "https://www.youtube.com/feeds/videos.xml?channel_id=UCx",
+  );
+  check("Atom: サイトURLは alternate を採用", atom.siteUrl, "https://www.youtube.com/channel/UCx");
+  check("Atom: ID", atom.items[0]?.externalId, "yt:video:abcdefghijk");
+  check("Atom: リンク", atom.items[0]?.url, "https://www.youtube.com/watch?v=abcdefghijk");
+
+  const rdf = parseFeedXml(
+    `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+     <channel><title>RDF</title><link>https://r.example/</link></channel>
+     <item rdf:about="https://r.example/a"><title>A</title><link>https://r.example/a</link><dc:date>2026-10-30T12:00:00+09:00</dc:date></item>
+     </rdf:RDF>`,
+    "https://r.example/index.rdf",
+  );
+  check("RDF: 件数", rdf.items.length, 1);
+  check("RDF: 日時", rdf.items[0]?.publishedAt, "2026-10-30T03:00:00.000Z");
+
+  let notFeed = false;
+  try {
+    parseFeedXml("<html><body>hello</body></html>", "https://x.example/");
+  } catch {
+    notFeed = true;
+  }
+  check("フィードでないものは拒否", notFeed, true);
+
+  // --- URLの判定 ---
+  const pick = (input: string) => {
+    const result = parseAccountUrl(input);
+    return "error" in result ? "error" : `${result.platform}:${result.mode}:${result.handle}`;
+  };
+  check("YouTube @handle", pick("https://www.youtube.com/@some_name/videos"), "youtube:feed:@some_name");
+  check("YouTube channel", pick("youtube.com/channel/UCabcdefghijklmnopqrstuv"), "youtube:feed:UCabcdefghijklmnopqrstuv");
+  check("YouTube 動画URLは不可", pick("https://www.youtube.com/watch?v=abcdefghijk"), "error");
+  check("X", pick("https://twitter.com/Some_User?lang=ja"), "x:embed:@Some_User");
+  check("X 予約語は不可", pick("https://x.com/home"), "error");
+  check("Instagram", pick("https://www.instagram.com/some.user/"), "instagram:embed:@some.user");
+  check("Instagram 投稿URLは不可", pick("https://www.instagram.com/p/abc/"), "error");
+  check("TikTok", pick("https://www.tiktok.com/@some.user"), "tiktok:embed:@some.user");
+  check("Threads", pick("https://www.threads.net/@some.user"), "threads:link:@some.user");
+  check("Blog", pick("https://ameblo.jp/someone/"), "blog:feed:ameblo.jp");
+  check("javascript: は不可", pick("javascript:alert(1)"), "error");
+  check("埋め込みハンドルの検証(不正)", embedHandle("x", '@a"onload=x'), null);
+  check("埋め込みハンドルの検証(正常)", embedHandle("tiktok", "@some.user"), "some.user");
+
+  console.log(failed === 0 ? "\nすべて成功" : `\n${failed}件 失敗`);
+  process.exit(failed === 0 ? 0 : 1);
+}
+
+void main();

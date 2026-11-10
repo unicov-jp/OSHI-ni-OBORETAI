@@ -278,8 +278,8 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[calc(var(--bar)+2rem)] bg-gradient-to-b from-black/70 to-transparent" />
       <nav
         aria-label="推し"
-        className="absolute top-[env(safe-area-inset-top)] left-0 z-30 flex h-[calc(var(--slot)+8px)] snap-x snap-mandatory items-center overflow-x-auto [scrollbar-width:none]"
-        style={{ width: "calc(var(--slot) * 4)" }}
+        className="absolute top-[env(safe-area-inset-top)] z-30 flex h-[calc(var(--slot)+8px)] snap-x snap-mandatory items-center overflow-x-auto [scrollbar-width:none]"
+        style={{ width: "calc(var(--slot) * 4)", left: "calc((100vw - var(--slot) * 5) / 2)" }}
       >
         {oshi.map((o) => {
           const on = o.id === active.id;

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { OshiAvatar } from "@/components/oshi-avatar";
-import { addLive } from "@/lib/actions/records";
+import { addLive, updateLive } from "@/lib/actions/records";
 import { useLongPress } from "@/lib/long-press";
 import type { CalendarEntry, GalleryPhoto, Oshi } from "@/lib/types";
 
@@ -301,13 +301,16 @@ function formatDate(date: string): string {
 
 const field = "h-11 w-full rounded-xl bg-white/10 px-3 text-[15px] outline-none [color-scheme:dark] focus:ring-2 focus:ring-white/40";
 
-export function CalendarBody({ oshi, entries }: { oshi: Oshi; entries: CalendarEntry[] }) {
-  const router = useRouter();
+// onShowGallery: チェキをタップしたときにギャラリーへ切り替える
+export function CalendarBody({ oshi, entries, onShowGallery }: { oshi: Oshi; entries: CalendarEntry[]; onShowGallery: () => void }) {
   const today = todayJst();
   const [month, setMonth] = useState(today.slice(0, 7));
   // タップした日(最初は今日)。その日の記録をカレンダーの下に出す
   const [selected, setSelected] = useState(today);
   const [adding, setAdding] = useState<"live" | "cheki" | null>(null);
+  // LIVE: 長押しで出す詳細(ポスター・編集ボタン)と、編集中の記録
+  const [detail, setDetail] = useState<CalendarEntry | null>(null);
+  const [editing, setEditing] = useState<CalendarEntry | null>(null);
 
   const byDate = useMemo(() => {
     const map = new Map<string, CalendarEntry[]>();
@@ -398,87 +401,245 @@ export function CalendarBody({ oshi, entries }: { oshi: Oshi; entries: CalendarE
             <p className="text-sm text-white/55">この日の記録はありません。</p>
           ) : (
             <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
-              {list.map((e) => {
-                const body = (
-                  <>
-                    <span
-                      className="w-12 shrink-0 rounded px-1 py-0.5 text-center text-[10px] font-bold text-black"
-                      style={{ background: TYPE_COLOR[e.type] }}
-                    >
-                      {TYPE_LABEL[e.type]}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[14px] font-semibold">{e.title}</span>
-                      {e.sub ? <span className="num block truncate text-xs text-white/55">{e.sub}</span> : null}
-                    </span>
-                  </>
-                );
-                return (
-                  <li key={`${e.type}-${e.id}`}>
-                    {e.type === "cheki" ? (
-                      // チェキの写真はギャラリーで見る
-                      <button
-                        type="button"
-                        onClick={() => router.replace(`/app?tab=${encodeURIComponent(oshi.id)}&view=gallery`, { scroll: false })}
-                        className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-white/10"
-                      >
-                        {body}
-                        <span className="shrink-0 text-xs text-white/55">ギャラリーで見る ›</span>
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-3 px-4 py-3">{body}</div>
-                    )}
+              {list.map((e) =>
+                e.type === "live" ? (
+                  <LiveRow key={`live-${e.id}`} entry={e} onDetail={() => setDetail(e)} />
+                ) : (
+                  <li key={`cheki-${e.id}`}>
+                    {/* チェキの写真はギャラリーで見る */}
+                    <button type="button" onClick={onShowGallery} className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-white/10">
+                      <TypeMark type={e.type} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-semibold">{e.title}</span>
+                        {e.sub ? <span className="num block truncate text-xs text-white/55">{e.sub}</span> : null}
+                      </span>
+                      <span className="shrink-0 text-xs text-white/55">ギャラリーで見る ›</span>
+                    </button>
                   </li>
-                );
-              })}
+                ),
+              )}
             </ul>
           )}
         </div>
       </div>
 
       {adding === "live" ? <LiveSheet oshi={oshi} date={selected} onClose={() => setAdding(null)} /> : null}
+      {editing ? <LiveSheet oshi={oshi} date={editing.date} entry={editing} onClose={() => setEditing(null)} /> : null}
+      {detail ? (
+        <LiveDetail
+          entry={detail}
+          onClose={() => setDetail(null)}
+          onEdit={() => {
+            setEditing(detail);
+            setDetail(null);
+          }}
+        />
+      ) : null}
       {adding === "cheki" ? <AddSheet oshi={oshi} initialMode="cheki" initialDate={selected} onClose={() => setAdding(null)} /> : null}
     </div>
   );
 }
 
-// LIVE の登録(イベント名・日付・開始時刻・会場・観戦方法・メモ)
-function LiveSheet({ oshi, date: initialDate, onClose }: { oshi: Oshi; date: string; onClose: () => void }) {
+function TypeMark({ type }: { type: CalendarEntry["type"] }) {
+  return (
+    <span className="w-12 shrink-0 rounded px-1 py-0.5 text-center text-[10px] font-bold text-black" style={{ background: TYPE_COLOR[type] }}>
+      {TYPE_LABEL[type]}
+    </span>
+  );
+}
+
+const VIEWING_LABEL = { venue: "現地", stream: "配信", tbd: "未定" } as const;
+
+// LIVE の1行: 短押しでマップ・配信のボタンを出し、長押しでポスターと編集ボタンの画面を出す
+function LiveRow({ entry, onDetail }: { entry: CalendarEntry; onDetail: () => void }) {
+  const [open, setOpen] = useState(false);
+  const press = useLongPress(onDetail);
+  const live = entry.live;
+  const action = "flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-bold";
+  return (
+    <li>
+      <button
+        type="button"
+        {...press}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label={`${entry.title}(タップでマップ・配信、長押しでポスターと編集)`}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-white/10"
+      >
+        <TypeMark type="live" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] font-semibold">{entry.title}</span>
+          {entry.sub ? <span className="num block truncate text-xs text-white/55">{entry.sub}</span> : null}
+        </span>
+        {live ? <span className="shrink-0 text-[11px] text-white/55">{VIEWING_LABEL[live.viewing]}</span> : null}
+      </button>
+      {open && live ? (
+        <div className="flex gap-2 px-4 pb-3">
+          {live.mapUrl ? (
+            <a href={live.mapUrl} target="_blank" rel="noopener noreferrer" className={`${action} bg-white text-black`}>
+              マップ
+            </a>
+          ) : (
+            <span className={`${action} bg-white/10 text-white/35`}>マップ(会場なし)</span>
+          )}
+          {live.streamUrl ? (
+            <a href={live.streamUrl} target="_blank" rel="noopener noreferrer" className={`${action} bg-[#ff2d6f] text-white`}>
+              配信
+            </a>
+          ) : (
+            <span className={`${action} bg-white/10 text-white/35`}>配信(URLなし)</span>
+          )}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+// LIVE の詳細(長押し): 上にポスター、下に内容と編集ボタン
+function LiveDetail({ entry, onClose, onEdit }: { entry: CalendarEntry; onClose: () => void; onEdit: () => void }) {
+  const live = entry.live;
+  const [broken, setBroken] = useState(false);
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-end bg-black/70 text-white" onClick={onClose} role="presentation">
+      <div
+        role="dialog"
+        aria-label={entry.title}
+        onClick={(event) => event.stopPropagation()}
+        className="max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-[#111] px-4 pt-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-2xl"
+      >
+        <span aria-hidden className="mx-auto mb-3 block h-1 w-10 rounded-full bg-white/25" />
+        {live?.poster && !broken ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={live.poster}
+            alt={`${entry.title}のポスター`}
+            onError={() => setBroken(true)}
+            className="mx-auto max-h-[55dvh] w-auto max-w-full rounded-xl object-contain"
+          />
+        ) : (
+          <div className="flex h-40 items-center justify-center rounded-xl bg-white/5 text-sm text-white/45">
+            {live?.poster ? "ポスターを読み込めませんでした" : "ポスターはまだありません"}
+          </div>
+        )}
+        <div className="mt-4 space-y-1 px-1">
+          <p className="text-lg font-bold">{entry.title}</p>
+          <p className="num text-sm text-white/70">
+            {formatDate(entry.date)}
+            {live?.startTime ? `  ${live.startTime}〜` : ""}
+          </p>
+          {live?.venue ? <p className="text-sm text-white/70">{live.venue}</p> : null}
+          {live ? <p className="text-xs text-white/50">観戦: {VIEWING_LABEL[live.viewing]}</p> : null}
+          {live?.memo ? <p className="pt-1 text-sm whitespace-pre-wrap text-white/80">{live.memo}</p> : null}
+        </div>
+        <button type="button" onClick={onEdit} className="mt-4 h-12 w-full rounded-2xl bg-white text-[15px] font-bold text-black">
+          編集する
+        </button>
+        <button type="button" onClick={onClose} className="mt-2 h-12 w-full rounded-2xl bg-white/10 text-[15px] font-semibold">
+          閉じる
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// LIVE の登録・編集(ポスター・イベント名・日付・開始時刻・会場・観戦方法・メモ)。entry があれば編集
+function LiveSheet({ oshi, date: initialDate, entry, onClose }: { oshi: Oshi; date: string; entry?: CalendarEntry; onClose: () => void }) {
   const router = useRouter();
-  const [title, setTitle] = useState("");
+  const live = entry?.live;
+  const [title, setTitle] = useState(entry?.title ?? "");
   const [date, setDate] = useState(initialDate);
-  const [startTime, setStartTime] = useState("");
-  const [venue, setVenue] = useState("");
-  const [viewing, setViewing] = useState<"venue" | "stream" | "tbd">("venue");
-  const [memo, setMemo] = useState("");
+  const [startTime, setStartTime] = useState(live?.startTime ?? "");
+  const [venue, setVenue] = useState(live?.venue ?? "");
+  const [viewing, setViewing] = useState<"venue" | "stream" | "tbd">(live?.viewing ?? "venue");
+  const [memo, setMemo] = useState(live?.memo ?? "");
+  const [poster, setPoster] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const preview = useMemo(() => (poster ? URL.createObjectURL(poster) : null), [poster]);
+  useEffect(() => () => {
+    if (preview) URL.revokeObjectURL(preview);
+  }, [preview]);
 
   const save = async () => {
     if (!title.trim()) return setError("イベント名を入力してください");
     setBusy(true);
     setError(null);
-    const result = await addLive({ oshiId: oshi.id, date, title, startTime, venue, viewing, memo });
-    setBusy(false);
-    if (!result.ok) return setError(result.error);
-    onClose();
-    router.refresh();
+    try {
+      const fields = { date, title, startTime, venue, viewing, memo };
+      let id = entry?.id;
+      if (id) {
+        const result = await updateLive(id, fields);
+        if (!result.ok) throw new Error(result.error);
+      } else {
+        const result = await addLive({ oshiId: oshi.id, ...fields });
+        if (!result.ok) throw new Error(result.error);
+        id = result.data?.id;
+      }
+      // ポスターを選んだときは、記録を保存したあとに送る
+      if (poster && id) {
+        const body = new FormData();
+        body.set("target", "live");
+        body.set("oshiId", oshi.id);
+        body.set("recordId", id);
+        body.append("photos", await shrink(poster), "poster.jpg");
+        const response = await fetch("/api/photo", { method: "POST", body });
+        const result = (await response.json().catch(() => ({}))) as { error?: string };
+        if (!response.ok) throw new Error(`内容は保存しました。ポスターは保存できませんでした(${result.error ?? "通信エラー"})`);
+      }
+      onClose();
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "保存できませんでした");
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const currentPoster = preview ?? live?.poster ?? "";
 
   return createPortal(
     <div className="fixed inset-0 z-[60] flex items-end bg-black/60 text-white" onClick={busy ? undefined : onClose} role="presentation">
       <div
         role="dialog"
-        aria-label="LIVEを登録"
+        aria-label={entry ? "LIVEを編集" : "LIVEを登録"}
         onClick={(event) => event.stopPropagation()}
         className="max-h-[90dvh] w-full overflow-y-auto rounded-t-3xl bg-[#111] px-4 pt-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-2xl"
       >
         <span aria-hidden className="mx-auto mb-4 block h-1 w-10 rounded-full bg-white/25" />
         <div className="mb-3 flex items-center gap-3 px-1">
           <OshiAvatar oshi={oshi} size={40} />
-          <p className="truncate text-[15px] font-bold">LIVEを登録</p>
+          <p className="truncate text-[15px] font-bold">{entry ? "LIVEを編集" : "LIVEを登録"}</p>
         </div>
         <div className="space-y-3">
+          <div>
+            <span className="mb-1 block text-xs text-white/60">ポスター(任意)</span>
+            <input
+              ref={input}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file && file.type.startsWith("image/")) setPoster(file);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => input.current?.click()}
+              className="flex h-36 w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-white/30 bg-white/5 text-sm text-white/70"
+            >
+              {currentPoster ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={currentPoster} alt="" className="h-full w-auto object-contain" />
+              ) : (
+                "ポスターを選ぶ"
+              )}
+            </button>
+            {currentPoster ? <p className="mt-1 text-[11px] text-white/45">タップで差し替え</p> : null}
+          </div>
           <label className="block">
             <span className="mb-1 block text-xs text-white/60">イベント名</span>
             <input value={title} maxLength={60} onChange={(e) => setTitle(e.target.value)} className={field} />
@@ -500,7 +661,7 @@ function LiveSheet({ oshi, date: initialDate, onClose }: { oshi: Oshi; date: str
           <div>
             <span className="mb-1 block text-xs text-white/60">観戦</span>
             <div className="grid grid-cols-3 gap-2">
-              {([["venue", "現地"], ["stream", "配信"], ["tbd", "未定"]] as const).map(([key, label]) => (
+              {(["venue", "stream", "tbd"] as const).map((key) => (
                 <button
                   key={key}
                   type="button"
@@ -508,7 +669,7 @@ function LiveSheet({ oshi, date: initialDate, onClose }: { oshi: Oshi; date: str
                   onClick={() => setViewing(key)}
                   className={`h-10 rounded-xl text-sm font-bold ${viewing === key ? "bg-white text-black" : "bg-white/10"}`}
                 >
-                  {label}
+                  {VIEWING_LABEL[key]}
                 </button>
               ))}
             </div>
@@ -529,7 +690,7 @@ function LiveSheet({ oshi, date: initialDate, onClose }: { oshi: Oshi; date: str
             onClick={() => void save()}
             className="h-12 w-full rounded-2xl bg-white text-[15px] font-bold text-black disabled:opacity-40"
           >
-            {busy ? "保存中" : "登録する"}
+            {busy ? "保存中" : entry ? "変更を保存" : "登録する"}
           </button>
         </div>
         <button type="button" disabled={busy} onClick={onClose} className="mt-3 h-12 w-full rounded-2xl bg-white/10 text-[15px] font-semibold">

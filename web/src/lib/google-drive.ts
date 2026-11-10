@@ -44,7 +44,7 @@ export async function driveAccessToken(supabase: SupabaseClient, userId: string)
   return body.access_token;
 }
 
-// ---- 写真の保存(今のアプリと同じ置き場所: 「推し活手帳」フォルダの中の Gallery・チェキ) ----
+// ---- 写真の保存(今のアプリと同じ置き場所: 「推し活手帳」フォルダの中の Gallery・チェキ・LIVE) ----
 // 権限は drive.file(このアプリが作ったファイル・フォルダだけを扱える)。今のアプリと同じ OAuth クライアントを使うので、
 // 今のアプリが作ったフォルダをそのまま使える。
 
@@ -90,7 +90,7 @@ async function ensureFolder(token: string, userId: string, name: string, parent:
 
 // 写真を1枚ドライブへ保存し、記録に入れる置き場所(gdrive:<ファイルID>)を返す
 export async function uploadPhotoToDrive(
-  token: string, userId: string, sub: "Gallery" | "チェキ", fileName: string, bytes: ArrayBuffer, type: string,
+  token: string, userId: string, sub: "Gallery" | "チェキ" | "LIVE", fileName: string, bytes: ArrayBuffer, type: string,
 ): Promise<string> {
   const root = await ensureFolder(token, userId, ROOT_FOLDER, null);
   const parent = await ensureFolder(token, userId, sub, root);

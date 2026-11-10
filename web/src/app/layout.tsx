@@ -9,8 +9,8 @@ export const metadata: Metadata = {
   // ホーム画面に追加したときの名前(iPhone)とアイコン
   appleWebApp: { capable: true, title: "推しに溺れたい", statusBarStyle: "black-translucent" },
   icons: {
-    icon: [{ url: "/icons/favicon-32.png", sizes: "32x32", type: "image/png" }],
-    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+    icon: [{ url: "/icons/favicon-32.png?v=2", sizes: "32x32", type: "image/png" }],
+    apple: [{ url: "/icons/apple-touch-icon.png?v=2", sizes: "180x180" }],
   },
 };
 

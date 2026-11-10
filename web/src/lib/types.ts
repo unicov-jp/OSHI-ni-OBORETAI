@@ -149,4 +149,17 @@ export type CalendarEntry = {
   date: string;
   title: string;
   sub: string;
+  // LIVE のみ: 編集・マップ・配信・ポスターに使う
+  live?: {
+    startTime: string;
+    venue: string;
+    viewing: "venue" | "stream" | "tbd";
+    memo: string;
+    // Googleマップで会場を開くURL(会場が無ければ空)
+    mapUrl: string;
+    // 配信のURL(無ければ空)
+    streamUrl: string;
+    // ポスター(LIVEの写真の1枚目。無ければ空)
+    poster: string;
+  };
 };

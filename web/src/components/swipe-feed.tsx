@@ -512,7 +512,7 @@ export function SwipeFeed({
           {view === "gallery" ? (
             <GalleryBody key={`g-${active.id}`} oshi={active} photos={gallery} />
           ) : (
-            <CalendarBody key={`c-${active.id}`} oshi={active} entries={calendar} />
+            <CalendarBody key={`c-${active.id}`} oshi={active} entries={calendar} onShowGallery={() => go(2)} />
           )}
         </div>
       ) : null}

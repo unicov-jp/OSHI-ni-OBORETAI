@@ -72,6 +72,24 @@ export async function getGallery(oshiId: string): Promise<GalleryPhoto[]> {
   return photos;
 }
 
+// Googleマップで会場を開くURL(今のアプリと同じ作り。APIキー不要)
+function mapsUrlFor(venue: string, place: unknown): string {
+  const p = place && typeof place === "object" ? (place as Raw) : null;
+  const name = p ? str(p.name) : "";
+  const query = name ? `${name}${str(p!.address) ? ` ${str(p!.address)}` : ""}` : venue;
+  if (!query) return "";
+  let url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  if (p && str(p.placeId)) url += `&query_place_id=${encodeURIComponent(str(p.placeId))}`;
+  return url;
+}
+
+// 配信のURL(http(s) のみ)
+function streamUrlOf(data: Raw): string {
+  const list = Array.isArray(data.streamUrls) ? data.streamUrls : [];
+  const url = [...list, data.streamUrl].find((u) => typeof u === "string" && /^https?:\/\//.test(u));
+  return typeof url === "string" ? url : "";
+}
+
 export async function getCalendar(oshiId: string): Promise<CalendarEntry[]> {
   if (DEMO) return [];
   const supabase = await createClient();
@@ -88,7 +106,24 @@ export async function getCalendar(oshiId: string): Promise<CalendarEntry[]> {
     const type = row.kind as CalendarEntry["type"];
     if (type === "live") {
       const time = str(data.startTime);
-      entries.push({ id: row.id, type, date, title: str(data.title) || "LIVE", sub: [time ? `${time}〜` : "", str(data.venue)].filter(Boolean).join(" ") });
+      const photos = recordPhotos(data);
+      const field = Array.isArray(data.photos) && data.photos.length > 0 ? "photos" : "photo";
+      entries.push({
+        id: row.id,
+        type,
+        date,
+        title: str(data.title) || "LIVE",
+        sub: [time ? `${time}〜` : "", str(data.venue)].filter(Boolean).join(" "),
+        live: {
+          startTime: time,
+          venue: str(data.venue),
+          viewing: data.viewing === "stream" || data.viewing === "tbd" ? data.viewing : "venue",
+          memo: str(data.memo),
+          mapUrl: mapsUrlFor(str(data.venue), data.venuePlace),
+          streamUrl: streamUrlOf(data),
+          poster: photos[0] ? photoUrl("live", row.id, field, 0, photos[0]) : "",
+        },
+      });
     } else {
       const count = Math.max(Number(data.count) || 1, recordPhotos(data).length, 1);
       entries.push({ id: row.id, type, date, title: str(data.title) || "チェキ", sub: `${count}枚` });

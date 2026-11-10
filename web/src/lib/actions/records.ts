@@ -17,7 +17,23 @@ const liveSchema = z.object({
   venue: z.string().trim().max(60, "会場は60文字までです"),
   viewing: z.enum(["venue", "stream", "tbd"]),
   memo: z.string().max(500, "メモは500文字までです"),
+  // チケット・配信のURL(http(s) のみ。https:// は省略可)
+  ticketUrl: z.string().max(500).default(""),
+  streamUrl: z.string().max(500).default(""),
 });
+
+// https:// を省略しても受け付ける。http(s) 以外は不可(null を返す)
+function webUrl(value: string): string | null {
+  const v = value.trim();
+  if (!v) return "";
+  const url = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function addLive(input: z.input<typeof liveSchema>): Promise<ActionResult<{ id: string }>> {
   if (DEMO) return { ok: false, error: "デモ表示では追加できません" };
@@ -25,6 +41,10 @@ export async function addLive(input: z.input<typeof liveSchema>): Promise<Action
   const parsed = liveSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "入力内容を確認してください" };
   const value = parsed.data;
+  const ticketUrl = webUrl(value.ticketUrl);
+  const streamUrl = webUrl(value.streamUrl);
+  if (ticketUrl === null) return { ok: false, error: "チケットのURLを正しく入力してください" };
+  if (streamUrl === null) return { ok: false, error: "配信のURLを正しく入力してください" };
 
   const supabase = await createClient();
   const { data: oshiRow } = await supabase
@@ -52,12 +72,12 @@ export async function addLive(input: z.input<typeof liveSchema>): Promise<Action
     price: 0,
     seat: "",
     ticketType: "",
-    ticketUrl: "",
+    ticketUrl,
     memo: value.memo,
     tag: "",
     setlists: [],
-    streamUrls: [],
-    streamUrl: "",
+    streamUrls: streamUrl ? [streamUrl] : [],
+    streamUrl,
     extraOshis: [],
     venuePlace: null,
     oshiId: value.oshiId,
@@ -82,6 +102,10 @@ export async function updateLive(id: string, input: Omit<z.input<typeof liveSche
   const parsed = liveSchema.omit({ oshiId: true }).safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "入力内容を確認してください" };
   const value = parsed.data;
+  const ticketUrl = webUrl(value.ticketUrl);
+  const streamUrl = webUrl(value.streamUrl);
+  if (ticketUrl === null) return { ok: false, error: "チケットのURLを正しく入力してください" };
+  if (streamUrl === null) return { ok: false, error: "配信のURLを正しく入力してください" };
 
   const supabase = await createClient();
   const { data: row } = await supabase
@@ -94,6 +118,8 @@ export async function updateLive(id: string, input: Omit<z.input<typeof liveSche
   if (!row) return { ok: false, error: "LIVEの記録が見つかりません" };
   const current = (row.data ?? {}) as Record<string, unknown>;
   const place = current.venuePlace as { name?: unknown } | null | undefined;
+  const rest = (Array.isArray(current.streamUrls) ? current.streamUrls : []).slice(1).filter((u): u is string => typeof u === "string" && u !== "");
+  const streamList = streamUrl ? [streamUrl, ...rest] : rest;
   const data = {
     ...current,
     date: value.date,
@@ -102,6 +128,10 @@ export async function updateLive(id: string, input: Omit<z.input<typeof liveSche
     venue: value.venue,
     viewing: value.viewing,
     memo: value.memo,
+    ticketUrl,
+    // 配信のURLは1件目を差し替える(今のアプリで足した2件目以降は残す)
+    streamUrls: streamList,
+    streamUrl: streamList[0] ?? "",
     // 会場名を変えたら、前の会場の位置は外す
     venuePlace: place && place.name === value.venue ? place : null,
   };

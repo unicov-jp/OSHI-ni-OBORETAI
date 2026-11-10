@@ -109,11 +109,11 @@ export const demoAdminStats: AdminStats = {
 };
 
 export const demoAdminUsers: AdminUser[] = [
-  { id: "u1", email: "demo@example.com", display_name: "デモ利用者", suspended_at: null, created_at: ago(2400), plan: "master", oshi_count: 5, source_count: 17 },
-  { id: "u2", email: "very.long.mail.address.for.layout.check@subdomain.example.co.jp", display_name: "表示名がとても長い利用者さんの表示確認用アカウント", suspended_at: null, created_at: ago(900), plan: "free", oshi_count: 3, source_count: 12 },
-  { id: "u3", email: "minato@example.com", display_name: "みなと", suspended_at: null, created_at: ago(480), plan: "paid", oshi_count: 21, source_count: 96 },
-  { id: "u4", email: "spam@example.com", display_name: "", suspended_at: ago(30), created_at: ago(72), plan: "free", oshi_count: 3, source_count: 15 },
-  { id: "u5", email: "nagisa@example.com", display_name: "なぎさ", suspended_at: null, created_at: ago(20), plan: "free", oshi_count: 1, source_count: 4 },
+  { id: "u1", email: "demo@example.com", billing_status: null, suspended_at: null, created_at: ago(2400), plan: "master", oshi_count: 5, source_count: 17 },
+  { id: "u2", email: "very.long.mail.address.for.layout.check@subdomain.example.co.jp", billing_status: null, suspended_at: null, created_at: ago(900), plan: "free", oshi_count: 3, source_count: 12 },
+  { id: "u3", email: "minato@example.com", billing_status: "active", billing_period_end: ago(-500), suspended_at: null, created_at: ago(480), plan: "paid", oshi_count: 21, source_count: 96 },
+  { id: "u4", email: "spam@example.com", billing_status: "canceled", billing_period_end: ago(10), suspended_at: ago(30), created_at: ago(72), plan: "free", oshi_count: 3, source_count: 15 },
+  { id: "u5", email: "nagisa@example.com", billing_status: "past_due", billing_period_end: ago(-30), suspended_at: null, created_at: ago(20), plan: "free", oshi_count: 1, source_count: 4 },
 ];
 
 export const demoAdminFeeds: AdminFeed[] = [

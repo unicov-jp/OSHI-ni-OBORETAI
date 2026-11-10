@@ -138,3 +138,27 @@ export async function loadMore(input: {
     return { ok: false, error: "読み込めませんでした。時間をおいてもう一度お試しください。" };
   }
 }
+
+// 推しのアイコンの写真を外す(今のアプリと同じく photo・photoOriginal を空にする。ドライブのファイルは消さない)
+export async function removeOshiPhoto(id: string): Promise<ActionResult> {
+  if (DEMO) return { ok: false, error: "デモ表示では変更できません" };
+  await requireViewer();
+  if (!oshiId.safeParse(id).success) return { ok: false, error: "対象が正しくありません" };
+  const supabase = await createClient();
+  const { data: row } = await supabase
+    .from("oshikatsu_records")
+    .select("data")
+    .eq("kind", "oshi")
+    .eq("id", id)
+    .eq("deleted", false)
+    .maybeSingle();
+  if (!row) return { ok: false, error: "推しが見つかりません" };
+  const { error } = await supabase
+    .from("oshikatsu_records")
+    .update({ data: { ...(row.data as Record<string, unknown>), photo: null, photoOriginal: null } })
+    .eq("kind", "oshi")
+    .eq("id", id);
+  if (error) return { ok: false, error: "保存できませんでした。時間をおいてもう一度お試しください。" };
+  revalidatePath("/app", "layout");
+  return { ok: true };
+}

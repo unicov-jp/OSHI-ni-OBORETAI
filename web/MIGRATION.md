@@ -49,7 +49,7 @@
 
 ## 依頼者にお願いする作業
 
-0. **Stripe（残作業）**：サブスクの申し込み先と金額。確認用プロジェクトの環境変数に `STRIPE_SUBSCRIBE_URL`（Stripe の Payment Link の https://buy.stripe.com/…）と `SUBSCRIPTION_PRICE_LABEL`（例: 月額480円）を入れる。あわせて、支払い状況でプランを自動で切り替える仕組み（Webhook）も作る
+0. **Stripe（残作業）**：サブスクの申し込み先。確認用プロジェクトの環境変数に `STRIPE_SUBSCRIBE_URL`（Stripe の Payment Link の https://buy.stripe.com/…）を入れる。金額は推しの人数ごとに、管理画面の「料金」で決める（`oshikatsu_price_tiers`）。あわせて、支払い状況でプランを自動で切り替える仕組み（Webhook）も作る
 0. **推しの写真（残作業）**：確認用プロジェクト（oshi-ni-oboretai-next）の環境変数に、今の本番と同じ OAuth クライアント（oshi-ni-oboretai-drive）の `GOOGLE_OAUTH_CLIENT_ID`（Config）と `GOOGLE_OAUTH_CLIENT_SECRET`（Secret）を入れて Redeploy。設定画面（マスター）の「推しの写真」が OK になれば完了
 
 1. **新着用のSQLの実行**（いつ実行しても今のアプリには影響しない。何度実行してもよいので、P1-c で関数を足した今の版を実行する）：`supabase/migrations/20261110000000_oboretai_feeds.sql`

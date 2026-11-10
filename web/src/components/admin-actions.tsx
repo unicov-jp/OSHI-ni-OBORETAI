@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
 import { Button, Notice } from "@/components/ui";
 import { refetchFeed, setFeedStatus, setPlan, setSuspended } from "@/lib/actions/admin";
-import { PLAN_LABEL } from "@/lib/plans";
+import { PLAN_LABEL, type PlanLabels } from "@/lib/plans";
 import type { ActionResult, AdminFeed, AdminUser, Plan } from "@/lib/types";
 
 const PLANS: Plan[] = ["master", "paid", "free"];
@@ -39,7 +39,7 @@ function useAction() {
   return { pending, message, run };
 }
 
-export function UserActions({ user, selfId }: { user: AdminUser; selfId: string }) {
+export function UserActions({ user, selfId, labels = PLAN_LABEL }: { user: AdminUser; selfId: string; labels?: PlanLabels }) {
   const [open, setOpen] = useState(false);
   const { pending, message, run } = useAction();
   const isSelf = user.id === selfId;
@@ -53,8 +53,6 @@ export function UserActions({ user, selfId }: { user: AdminUser; selfId: string 
       <Dialog open={open} onClose={() => setOpen(false)} title={user.email}>
         <div className="space-y-4">
           <dl className="grid grid-cols-[88px_minmax(0,1fr)] gap-y-2 text-sm">
-            <dt className="text-muted">表示名</dt>
-            <dd className="[overflow-wrap:anywhere]">{user.display_name || "未設定"}</dd>
             <dt className="text-muted">メール</dt>
             <dd className="[overflow-wrap:anywhere]">{user.email}</dd>
             <dt className="text-muted">登録数</dt>
@@ -78,8 +76,8 @@ export function UserActions({ user, selfId }: { user: AdminUser; selfId: string 
                 {suspended ? "利用を再開する" : "利用を停止する"}
               </Button>
               {PLANS.filter((p) => p !== user.plan).map((p) => (
-                <Button key={p} disabled={pending} onClick={() => run(() => setPlan(user.id, p), `${PLAN_LABEL[p]}にしました`)}>
-                  {PLAN_LABEL[p]}にする
+                <Button key={p} disabled={pending} onClick={() => run(() => setPlan(user.id, p), `${labels[p]}にしました`)}>
+                  {labels[p]}にする
                 </Button>
               ))}
             </div>

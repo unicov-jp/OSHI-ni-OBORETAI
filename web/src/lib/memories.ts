@@ -58,8 +58,11 @@ export async function getGallery(oshiId: string): Promise<GalleryPhoto[]> {
     .filter((row) => recordHasOshi(row.data, oshiId) && row.data.hidden !== true)
     .sort((a, b) => (str(a.data.date) < str(b.data.date) ? 1 : str(a.data.date) > str(b.data.date) ? -1 : 0));
   for (const row of cheki) {
-    recordPhotos(row.data).forEach((ref, i) => {
-      const field = Array.isArray(row.data.photos) && row.data.photos.length > 0 ? "photos" : "photo";
+    // 写真の番号は、記録に入っている並びのまま使う(空の欄を飛ばして数えると、別の欄を指してしまう)
+    const field = Array.isArray(row.data.photos) && recordPhotos({ photos: row.data.photos }).length > 0 ? "photos" : "photo";
+    const list: unknown[] = field === "photos" ? (row.data.photos as unknown[]) : [row.data.photo];
+    list.forEach((ref, i) => {
+      if (typeof ref !== "string" || !ref) return;
       photos.push({
         key: `c-${row.id}-${i}`,
         src: photoUrl("cheki", row.id, field, i, ref),
@@ -106,8 +109,12 @@ export async function getCalendar(oshiId: string): Promise<CalendarEntry[]> {
     const type = row.kind as CalendarEntry["type"];
     if (type === "live") {
       const time = str(data.startTime);
-      const photos = recordPhotos(data);
-      const field = Array.isArray(data.photos) && data.photos.length > 0 ? "photos" : "photo";
+      // ポスター: 写真の欄の中で最初に入っているもの(番号は記録の並びのまま)
+      const usePhotos = Array.isArray(data.photos) && recordPhotos({ photos: data.photos }).length > 0;
+      const field = usePhotos ? "photos" : "photo";
+      const rawList: unknown[] = usePhotos ? (data.photos as unknown[]) : [data.photo];
+      const posterIndex = rawList.findIndex((p) => typeof p === "string" && p !== "");
+      const posterRef = posterIndex >= 0 ? (rawList[posterIndex] as string) : "";
       entries.push({
         id: row.id,
         type,
@@ -121,7 +128,8 @@ export async function getCalendar(oshiId: string): Promise<CalendarEntry[]> {
           memo: str(data.memo),
           mapUrl: mapsUrlFor(str(data.venue), data.venuePlace),
           streamUrl: streamUrlOf(data),
-          poster: photos[0] ? photoUrl("live", row.id, field, 0, photos[0]) : "",
+          ticketUrl: /^https?:\/\//.test(str(data.ticketUrl)) ? str(data.ticketUrl) : "",
+          poster: posterRef ? photoUrl("live", row.id, field, posterIndex, posterRef) : "",
         },
       });
     } else {

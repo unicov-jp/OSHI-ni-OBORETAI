@@ -120,7 +120,7 @@ export async function getAdminStats(): Promise<AdminStats> {
 
 export async function getAdminUsers(search: string, page: number): Promise<AdminUser[]> {
   if (DEMO) {
-    return demoAdminUsers.filter((u) => !search || u.email.includes(search) || u.display_name.includes(search));
+    return demoAdminUsers.filter((u) => !search || u.email.includes(search));
   }
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("oshikatsu_admin_list_users", {

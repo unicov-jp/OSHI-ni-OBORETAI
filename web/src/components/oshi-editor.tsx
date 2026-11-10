@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Button, Field, inputClass, Notice } from "@/components/ui";
-import { deleteOshiRecord, getOshiForEdit, saveOshiRecord } from "@/lib/actions/oshi";
+import { deleteOshiRecord, getOshiForEdit, removeOshiPhoto, saveOshiRecord } from "@/lib/actions/oshi";
 import { importAllSns } from "@/lib/actions/sources";
 import {
   emptySns, SNS_KEYS, SNS_LABEL, SNS_PLACEHOLDER, type GroupInput, type OshiEditable, type SnsInput,
@@ -10,7 +11,7 @@ import {
 import { MEMBER_COLORS } from "@/lib/platforms";
 
 // 推しの登録・編集。今のアプリ(推し活手帳)と同じ項目を、同じ記録に保存する。
-// 写真・ギャラリーの変更は、今のところ今のアプリで行う(ここでは触らず、そのまま残す)。
+// アイコンの写真は、選ぶとすぐに保存する(名前などの「変更を保存」とは別)。ギャラリーはギャラリーの画面で追加する。
 // 事務所は入力しない(今のアプリで入っている値は、そのまま残す)。
 
 const blank = (): OshiEditable => ({
@@ -74,6 +75,7 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
 
   return (
     <div className="space-y-6">
+      {value.id ? <PhotoField oshiId={value.id} name={value.name} color={value.color} /> : null}
       <div className="space-y-4">
         <Field label="名前">
           <input
@@ -171,7 +173,7 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
         ))}
       </section>
 
-      <p className="text-xs text-muted">写真・ギャラリーの変更は、今のアプリ(推し活手帳)で行えます。</p>
+      {value.id ? null : <p className="text-xs text-muted">アイコンの写真は、登録したあとにこの画面で設定できます。</p>}
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -219,6 +221,212 @@ function SnsFields({ title, value, onChange, compact = false }: {
           </Field>
         ))}
       </div>
+    </section>
+  );
+}
+
+// ---------------- アイコンの写真 ----------------
+
+const CROP = 240; // 切り抜きの枠の大きさ(画面上)
+const OUT = 512; // 保存する切り抜いた写真の大きさ
+
+async function toJpeg(canvas: HTMLCanvasElement): Promise<Blob> {
+  return await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("encode"))), "image/jpeg", 0.88),
+  );
+}
+
+// 推しのアイコンの写真: 選んだ写真を丸く切り抜く(ドラッグで位置、つまみで大きさ)。保存すると今のアプリにも反映される
+function PhotoField({ oshiId, name, color }: { oshiId: string; name: string; color: string }) {
+  const router = useRouter();
+  const [version, setVersion] = useState(() => Date.now());
+  const [hasPhoto, setHasPhoto] = useState(true);
+  const [picked, setPicked] = useState<{ url: string; w: number; h: number; bitmap: ImageBitmap } | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+
+  // 枠いっぱいに収まる最小の倍率(短い辺を枠に合わせる)
+  const base = picked ? CROP / Math.min(picked.w, picked.h) : 1;
+  const scale = base * zoom;
+  // はみ出さないように位置を抑える
+  const clamp = (x: number, y: number) => {
+    if (!picked) return { x: 0, y: 0 };
+    const maxX = Math.max(0, (picked.w * scale - CROP) / 2);
+    const maxY = Math.max(0, (picked.h * scale - CROP) / 2);
+    return { x: Math.min(maxX, Math.max(-maxX, x)), y: Math.min(maxY, Math.max(-maxY, y)) };
+  };
+  // 大きさを変えたときも枠からはみ出さない位置で表示・保存する
+  const at = clamp(pos.x, pos.y);
+
+  const pick = async (file: File) => {
+    setError(null);
+    try {
+      const bitmap = await createImageBitmap(file);
+      setPicked({ url: URL.createObjectURL(file), w: bitmap.width, h: bitmap.height, bitmap });
+      setZoom(1);
+      setPos({ x: 0, y: 0 });
+    } catch {
+      setError("この画像は読み込めませんでした");
+    }
+  };
+
+  const cancel = () => {
+    if (picked) URL.revokeObjectURL(picked.url);
+    setPicked(null);
+  };
+
+  const save = async () => {
+    if (!picked) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // 切り抜いた写真(正方形)
+      const crop = document.createElement("canvas");
+      crop.width = OUT;
+      crop.height = OUT;
+      const ctx = crop.getContext("2d")!;
+      const side = CROP / scale; // 元の写真での切り抜く幅
+      const sx = picked.w / 2 - at.x / scale - side / 2;
+      const sy = picked.h / 2 - at.y / scale - side / 2;
+      ctx.drawImage(picked.bitmap, sx, sy, side, side, 0, 0, OUT, OUT);
+      // 元の写真(長い辺1080px。今のアプリで切り抜き直すときに使う)
+      const ratio = Math.min(1, 1080 / Math.max(picked.w, picked.h));
+      const original = document.createElement("canvas");
+      original.width = Math.round(picked.w * ratio);
+      original.height = Math.round(picked.h * ratio);
+      original.getContext("2d")!.drawImage(picked.bitmap, 0, 0, original.width, original.height);
+
+      const body = new FormData();
+      body.set("target", "oshi-photo");
+      body.set("oshiId", oshiId);
+      body.append("photos", await toJpeg(crop), "photo.jpg");
+      body.append("photos", await toJpeg(original), "original.jpg");
+      const response = await fetch("/api/photo", { method: "POST", body });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "保存できませんでした");
+      cancel();
+      setHasPhoto(true);
+      setVersion(Date.now());
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "保存できませんでした");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    const result = await removeOshiPhoto(oshiId);
+    setBusy(false);
+    if (!result.ok) return setError(result.error);
+    setHasPhoto(false);
+    setVersion(Date.now());
+    router.refresh();
+  };
+
+  return (
+    <section className="space-y-3">
+      <p className="text-[13px] font-medium">アイコンの写真</p>
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) void pick(file);
+        }}
+      />
+      {picked ? (
+        <div className="space-y-3">
+          <div
+            className="relative mx-auto touch-none overflow-hidden rounded-full bg-black"
+            style={{ width: CROP, height: CROP, boxShadow: `0 0 0 3px ${color}` }}
+            onPointerDown={(event) => {
+              (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+              drag.current = { x: event.clientX, y: event.clientY, px: at.x, py: at.y };
+            }}
+            onPointerMove={(event) => {
+              const d = drag.current;
+              if (d) setPos(clamp(d.px + event.clientX - d.x, d.py + event.clientY - d.y));
+            }}
+            onPointerUp={() => (drag.current = null)}
+            onPointerCancel={() => (drag.current = null)}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={picked.url}
+              alt=""
+              draggable={false}
+              className="pointer-events-none absolute top-1/2 left-1/2 max-w-none select-none"
+              style={{
+                width: picked.w * scale,
+                height: picked.h * scale,
+                transform: `translate(calc(-50% + ${at.x}px), calc(-50% + ${at.y}px))`,
+              }}
+            />
+          </div>
+          <label className="mx-auto flex max-w-[280px] items-center gap-3 text-xs text-muted">
+            小
+            <input
+              type="range"
+              min={1}
+              max={3}
+              step={0.01}
+              value={zoom}
+              onChange={(event) => setZoom(Number(event.target.value))}
+              className="flex-1"
+              aria-label="写真の大きさ"
+            />
+            大
+          </label>
+          <p className="text-center text-xs text-muted">写真を動かして位置を、つまみで大きさを合わせます。</p>
+          {error ? <Notice tone="danger">{error}</Notice> : null}
+          <div className="flex justify-center gap-2">
+            <Button variant="primary" onClick={() => void save()} disabled={busy}>
+              {busy ? "保存中" : "この写真にする"}
+            </Button>
+            <Button variant="ghost" onClick={cancel} disabled={busy}>
+              やめる
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-4">
+          <span
+            className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full text-2xl font-bold text-white"
+            style={{ background: color, boxShadow: `0 0 0 3px ${color}` }}
+          >
+            {(name.trim() || "?").slice(0, 1)}
+            {hasPhoto ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={`/api/oshi-photo/${encodeURIComponent(oshiId)}?v=${version}`}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+                onError={() => setHasPhoto(false)}
+              />
+            ) : null}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => input.current?.click()} disabled={busy}>
+              {hasPhoto ? "写真を変える" : "写真を選ぶ"}
+            </Button>
+            {hasPhoto ? (
+              <Button size="sm" variant="ghost" onClick={() => void remove()} disabled={busy}>
+                写真を外す
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      )}
+      {!picked && error ? <Notice tone="danger">{error}</Notice> : null}
     </section>
   );
 }

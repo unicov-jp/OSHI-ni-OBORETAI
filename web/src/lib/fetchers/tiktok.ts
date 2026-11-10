@@ -29,9 +29,12 @@ export function videosFromEmbed(html: string): TikTokVideo[] {
   // 動画の一覧(videoList など)の部分だけを見る。アカウント自体の番号を拾わないため
   const start = html.search(/videoList|itemList|"videos"/);
   const part = start >= 0 ? html.slice(start, start + 400_000) : "";
+  // 日時つきで書かれている動画(あれば日時も使う)
   for (const match of part.matchAll(/"id"\s*:\s*"(\d{17,21})"[^{}]{0,3000}?"createTime"\s*:\s*"?(\d{9,11})/g)) add(match[1], match[2]);
-  if (videos.length === 0) for (const match of part.matchAll(/"id"\s*:\s*"(\d{17,21})"/g)) add(match[1]);
+  // 動画へのリンク(/@ID/video/<番号>)。いちばん確かな手がかり
   for (const match of html.matchAll(/\/video\/(\d{17,21})/g)) add(match[1]);
+  // どちらも無いときだけ、一覧の中の番号を使う(アカウントの番号を拾うおそれがあるため最後)
+  if (videos.length === 0) for (const match of part.matchAll(/"id"\s*:\s*"(\d{17,21})"/g)) add(match[1]);
   return videos.slice(0, MAX_VIDEOS);
 }
 

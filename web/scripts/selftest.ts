@@ -151,6 +151,11 @@ async function main() {
     videosFromEmbed('{"user":{"id":"6800000000000000001"},"videoList":[{"id":"7400000000000000001","createTime":"1767225600"},{"id":"7400000000000000002","createTime":1767139200}]}').map((v) => v.id),
     ["7400000000000000001", "7400000000000000002"],
   );
+  check(
+    "TikTok 動画(リンク。アカウントの番号は拾わない)",
+    videosFromEmbed('<div class="videoList"></div><a href="https://www.tiktok.com/@a/video/7703157206035811585?x=1"></a><script>{"user":{"id":"6800000000000000001"}}</script><a href="/@a/video/7703157206035811586"></a>').map((v) => v.id),
+    ["7703157206035811585", "7703157206035811586"],
+  );
   check("TikTok 動画なし", videosFromEmbed("<html></html>"), []);
 
   // --- 推しの記録の読み書き(今のアプリと共通) ---

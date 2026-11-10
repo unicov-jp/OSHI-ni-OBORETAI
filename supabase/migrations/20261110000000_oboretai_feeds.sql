@@ -860,27 +860,140 @@ $$;
 revoke all on function public.oshikatsu_unread_counts() from public, anon;
 grant execute on function public.oshikatsu_unread_counts() to authenticated;
 
--- X・Instagram・TikTok の投稿の既読(これらは新着として保存せず、開くたびに取りに行くので、投稿の番号だけを利用者ごとに覚える)。
--- post_key は x:<番号> / ig:<コード> / tt:<番号>。baseline は SNS を登録した時点ですでにあった投稿(未読に数えない)
-create table if not exists public.oshikatsu_post_states (
-  user_id uuid not null references auth.users (id) on delete cascade,
-  source_id uuid not null references public.oshikatsu_sources (id) on delete cascade,
+-- ---------------------------------------------------------------------------
+-- X・Instagram・TikTok の定期取得(Supabase の定期実行から /api/cron/fetch を呼ぶ)
+-- アカウントごとに次の取得時刻を持ち、時刻が来たものだけを読む。見つけた投稿の番号と、見つけた時刻を残す
+-- ---------------------------------------------------------------------------
+drop table if exists public.oshikatsu_post_states;
+
+create table if not exists public.oshikatsu_social_accounts (
+  platform text not null check (platform in ('x', 'instagram', 'tiktok')),
+  handle text not null check (char_length(handle) between 1 and 100),
+  next_fetch_at timestamptz not null default now(),
+  last_fetched_at timestamptz,
+  error_count int not null default 0,
+  last_error text,
+  created_at timestamptz not null default now(),
+  primary key (platform, handle)
+);
+create index if not exists oshikatsu_social_accounts_due_idx on public.oshikatsu_social_accounts (next_fetch_at);
+
+-- baseline: そのアカウントを初めて読んだときにすでにあった投稿(未読に数えない)
+create table if not exists public.oshikatsu_social_posts (
+  platform text not null check (platform in ('x', 'instagram', 'tiktok')),
+  handle text not null check (char_length(handle) between 1 and 100),
   post_key text not null check (char_length(post_key) between 3 and 80),
   posted_at timestamptz,
   first_seen_at timestamptz not null default now(),
+  -- 最後に一覧で見えた時刻(一覧から消えて30日たった投稿を片付ける。見えている間は消さない)
+  last_seen_at timestamptz not null default now(),
   baseline boolean not null default false,
-  read_at timestamptz,
-  primary key (user_id, source_id, post_key)
+  primary key (platform, handle, post_key)
 );
-create index if not exists oshikatsu_post_states_key_idx on public.oshikatsu_post_states (user_id, post_key);
-alter table public.oshikatsu_post_states enable row level security;
-revoke all on public.oshikatsu_post_states from anon, authenticated;
-grant select, insert, delete on public.oshikatsu_post_states to authenticated;
-grant update (read_at) on public.oshikatsu_post_states to authenticated;
-drop policy if exists oshikatsu_post_states_all on public.oshikatsu_post_states;
-create policy oshikatsu_post_states_all on public.oshikatsu_post_states for all to authenticated
-  using (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()))
+create index if not exists oshikatsu_social_posts_seen_idx on public.oshikatsu_social_posts (last_seen_at);
+
+-- X・Instagram・TikTok の既読(post_key は x:<番号> / ig:<コード> / tt:<番号>)
+create table if not exists public.oshikatsu_post_reads (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  post_key text not null check (char_length(post_key) between 3 and 80),
+  read_at timestamptz not null default now(),
+  primary key (user_id, post_key)
+);
+
+alter table public.oshikatsu_social_accounts enable row level security;
+alter table public.oshikatsu_social_posts enable row level security;
+alter table public.oshikatsu_post_reads enable row level security;
+revoke all on public.oshikatsu_social_accounts, public.oshikatsu_social_posts, public.oshikatsu_post_reads from anon, authenticated;
+grant select on public.oshikatsu_social_posts to authenticated;
+grant all on public.oshikatsu_social_accounts, public.oshikatsu_social_posts, public.oshikatsu_post_reads to service_role;
+grant select, insert on public.oshikatsu_post_reads to authenticated;
+drop policy if exists oshikatsu_social_posts_select on public.oshikatsu_social_posts;
+create policy oshikatsu_social_posts_select on public.oshikatsu_social_posts for select to authenticated
+  using ((select public.oshikatsu_session_ok()));
+drop policy if exists oshikatsu_post_reads_select on public.oshikatsu_post_reads;
+create policy oshikatsu_post_reads_select on public.oshikatsu_post_reads for select to authenticated
+  using (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()));
+drop policy if exists oshikatsu_post_reads_insert on public.oshikatsu_post_reads;
+create policy oshikatsu_post_reads_insert on public.oshikatsu_post_reads for insert to authenticated
   with check (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()));
+
+-- 取得するアカウントを、登録されている SNS(oshikatsu_sources)にそろえてから、時刻が来たものを確保する
+create or replace function public.oshikatsu_claim_social_accounts(batch int default 40)
+returns setof public.oshikatsu_social_accounts
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.oshikatsu_social_accounts (platform, handle)
+  select distinct s.platform, lower(ltrim(s.handle, '@'))
+  from public.oshikatsu_sources s
+  where s.platform in ('x', 'instagram', 'tiktok') and ltrim(s.handle, '@') <> ''
+  on conflict do nothing;
+
+  delete from public.oshikatsu_social_accounts a
+  where not exists (
+    select 1 from public.oshikatsu_sources s
+    where s.platform = a.platform and lower(ltrim(s.handle, '@')) = a.handle
+  );
+
+  return query
+  with claimed as (
+    update public.oshikatsu_social_accounts a
+    set next_fetch_at = now() + interval '15 minutes'
+    where (a.platform, a.handle) in (
+      select d.platform, d.handle from public.oshikatsu_social_accounts d
+      where d.next_fetch_at <= now()
+      order by d.next_fetch_at
+      limit least(greatest(batch, 1), 200)
+      for update skip locked
+    )
+    returning a.*
+  )
+  select * from claimed;
+end;
+$$;
+revoke all on function public.oshikatsu_claim_social_accounts(int) from public, anon, authenticated;
+
+-- X・Instagram・TikTok の未読(推しごとの投稿の番号)。SNS を登録した後に見つけた投稿のうち、直近30日のもの
+create or replace function public.oshikatsu_social_unread_keys()
+returns table (oshi_id text, post_key text)
+language sql stable security invoker set search_path = '' as $$
+  select distinct s.oshi_id, p.post_key
+  from public.oshikatsu_sources s
+  join public.oshikatsu_social_posts p
+    on p.platform = s.platform and p.handle = lower(ltrim(s.handle, '@'))
+  left join public.oshikatsu_post_reads r on r.user_id = s.user_id and r.post_key = p.post_key
+  where s.user_id = (select auth.uid())
+    and s.platform in ('x', 'instagram', 'tiktok')
+    and r.post_key is null
+    and not p.baseline
+    and p.first_seen_at > s.created_at
+    and coalesce(p.posted_at, p.first_seen_at) > s.created_at
+    and p.first_seen_at > now() - interval '30 days';
+$$;
+revoke all on function public.oshikatsu_social_unread_keys() from public, anon;
+grant execute on function public.oshikatsu_social_unread_keys() to authenticated;
+
+-- YouTube だけを定期取得の対象にする(Blog は推しを開いたときに取りに行く)
+create or replace function public.oshikatsu_claim_due_feeds(batch int default 30, only_user uuid default null)
+returns setof public.oshikatsu_feeds
+language sql security definer set search_path = '' as $$
+  update public.oshikatsu_feeds f
+  set next_fetch_at = now() + interval '15 minutes'
+  where f.id in (
+    select d.id from public.oshikatsu_feeds d
+    where d.status = 'active'
+      and d.platform = 'youtube'
+      and d.next_fetch_at <= now()
+      and exists (
+        select 1 from public.oshikatsu_sources s
+        where s.feed_id = d.id and (only_user is null or s.user_id = only_user)
+      )
+    order by d.next_fetch_at
+    limit least(greatest(batch, 1), 100)
+    for update skip locked
+  )
+  returning f.*;
+$$;
+revoke all on function public.oshikatsu_claim_due_feeds(int, uuid) from public, anon, authenticated;
 
 -- 追加した表・関数をすぐ使えるように、Supabase のAPIの一覧を読み直させる
 notify pgrst, 'reload schema';

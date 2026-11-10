@@ -15,9 +15,10 @@ export type FeedRow = {
 const HOUR = 60 * 60 * 1000;
 const MAX_ERRORS = 8;
 
+// 次の取得までの間隔。YouTube は定期取得(既定20分)、Blog は推しを開いたときに取りに行くので定期取得の対象外
 function intervalMs(): number {
-  const minutes = Number(process.env.FETCH_INTERVAL_MINUTES ?? 60);
-  return Math.max(15, Number.isFinite(minutes) ? minutes : 60) * 60 * 1000;
+  const minutes = Number(process.env.FETCH_INTERVAL_MINUTES ?? 20);
+  return Math.max(15, Number.isFinite(minutes) ? minutes : 20) * 60 * 1000;
 }
 
 // 取得元1件を取りに行き、新着を保存して次回の取得時刻を決める。

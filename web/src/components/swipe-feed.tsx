@@ -37,6 +37,8 @@ type Props = {
   sources: Source[];
   // Instagram のアカウントごとの最新の投稿のコード(読めなかったアカウントは空)
   instagram: Record<string, string[]>;
+  // Instagram の投稿を見つけた時刻(投稿のコード → 時刻)。投稿日時の代わりに、この時刻で X・YouTube などと日時の順に混ぜる
+  instagramAt: Record<string, string>;
   // X のアカウントごとの最新の投稿(番号と日時。読めなかったアカウントは空)
   x: Record<string, { id: string; at: string }[]>;
   // TikTok のアカウントごとの最新の動画(番号と日時。日時は読めないこともある)
@@ -168,27 +170,29 @@ type Slide =
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
 export function SwipeFeed({
-  isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view: initialView, gallery, calendar, savedUrls, pinned,
+  isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, instagramAt, view: initialView, gallery, calendar, savedUrls, pinned,
 }: Props) {
   const [saved, setSaved] = useState(() => new Set(savedUrls));
   // 推しの BGM(ギャラリー・カレンダーで流す)。たたんだかどうかは端末に覚える(たたむと止まる)
   const bgm = useMemo(() => (active.bgm ? parseBgm(active.bgm) : null), [active.bgm]);
-  const [bgmOpen, setBgmOpen] = useState(() => {
+  // ギャラリーでは開いておく(たたんだら次からもたたんでおく)。カレンダーは開くたびにたたんだ状態から始める
+  const galleryBgmOpen = () => {
     try {
       return typeof window === "undefined" || window.localStorage.getItem("oshi-bgm-closed") !== "1";
     } catch {
       return true;
     }
-  });
+  };
+  const [bgmOpen, setBgmOpen] = useState(() => (initialView === "calendar" ? false : galleryBgmOpen()));
   const toggleBgm = () => {
-    setBgmOpen((open) => {
-      try {
-        window.localStorage.setItem("oshi-bgm-closed", open ? "1" : "0");
-      } catch {
-        // 覚えられない環境でもそのまま切り替える
-      }
-      return !open;
-    });
+    const next = !bgmOpen;
+    setBgmOpen(next);
+    if (view !== "gallery") return;
+    try {
+      window.localStorage.setItem("oshi-bgm-closed", next ? "0" : "1");
+    } catch {
+      // 覚えられない環境でもそのまま切り替える
+    }
   };
   const [view, setView] = useState<FeedView>(initialView);
   // 切り替えた向き(画面を横から滑り込ませる向き)
@@ -337,17 +341,31 @@ export function SwipeFeed({
         else undated.push(slide);
       }
     }
+    // Instagram: 見つけた時刻が分かる投稿は、その時刻で日時の順に混ぜる
+    const instaDated = new Set<string>();
+    for (const source of sources.filter((s) => s.platform === "instagram")) {
+      for (const code of instagram[source.id] ?? []) {
+        const at = instagramAt[code];
+        if (!at || seen.has(`ig-${code}`)) continue;
+        seen.add(`ig-${code}`);
+        instaDated.add(code);
+        dated.push({ at, slide: { kind: "insta", key: `p-${source.id}-${code}`, source, from: fromOf.get(source.id) ?? "", code } });
+      }
+    }
     const cards = dated.sort((a, b) => (a.at < b.at ? 1 : -1)).map((d) => d.slide);
     // Instagram は投稿1件ずつ(読めたとき)。X・TikTok と、投稿を読めなかった Instagram はアカウントの表示
     const embeds: Slide[] = [...undated];
     for (const source of sources.filter((s) => EMBED_PLATFORMS.includes(s.platform))) {
       const from = fromOf.get(source.id) ?? "";
-      const codes = source.platform === "instagram" ? (instagram[source.id] ?? []) : [];
+      const all = source.platform === "instagram" ? (instagram[source.id] ?? []) : [];
+      const codes = all.filter((code) => !instaDated.has(code));
       // 投稿を読めた X は、上で日時の順に混ぜてあるのでアカウントの表示は出さない
       if (source.platform === "x" && (x[source.id] ?? []).length > 0) continue;
       if (source.platform === "tiktok" && (tiktok[source.id] ?? []).length > 0) continue;
       if (codes.length > 0) {
         for (const code of codes) embeds.push({ kind: "insta", key: `p-${source.id}-${code}`, source, from, code });
+      } else if (all.length > 0) {
+        // すべて日時の順に混ぜた
       } else {
         embeds.push({ kind: "embed", key: `e-${source.id}`, source, from });
       }
@@ -370,7 +388,7 @@ export function SwipeFeed({
       result.push({ kind: "link", key: `l-${source.id}`, source, from: fromOf.get(source.id) ?? "" });
     }
     return result;
-  }, [items, sources, fromOf, instagram, x, tiktok, pinned]);
+  }, [items, sources, fromOf, instagram, instagramAt, x, tiktok, pinned]);
 
   // 画面に出ている1枚を調べる
   useEffect(() => {
@@ -502,6 +520,9 @@ export function SwipeFeed({
       buzz(15);
       setEnter(step > 0 ? "right" : "left");
       setView(next);
+      // BGM: カレンダーはたたんだ状態から、ギャラリーは前の状態から
+      if (next === "calendar") setBgmOpen(false);
+      else if (next === "gallery") setBgmOpen(galleryBgmOpen());
       window.history.replaceState(window.history.state, "", tabHref(active.id, next));
     },
     [view, active.id],

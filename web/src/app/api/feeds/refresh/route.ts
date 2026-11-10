@@ -14,7 +14,7 @@ const LIMIT_PER_HOUR = 6;
 const OSHI_LIMIT_PER_HOUR = 120;
 
 // 手動の「更新」ボタン。ログイン中の利用者が登録した YouTube・Blog の新着を、その場で取りに行く。
-// 定期の取得は毎日18:00(日本時間)に /api/cron/fetch が行う。
+// 定期の取得は Supabase の定期実行から15分ごとに /api/cron/fetch が行う(YouTube は20分ごと。Blog は推しを開いたときだけ)。
 export async function POST(request: Request) {
   if (DEMO) return NextResponse.json({ error: "デモ表示では更新できません" }, { status: 400 });
 

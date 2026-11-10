@@ -192,10 +192,7 @@ export async function markPostsRead(keys: string[]): Promise<ActionResult> {
   if (!parsed.success || parsed.data.length === 0) return { ok: true };
   const supabase = await createClient();
   await supabase
-    .from("oshikatsu_post_states")
-    .update({ read_at: new Date().toISOString() })
-    .eq("user_id", viewer.id)
-    .in("post_key", parsed.data)
-    .is("read_at", null);
+    .from("oshikatsu_post_reads")
+    .upsert(parsed.data.map((key) => ({ user_id: viewer.id, post_key: key })), { onConflict: "user_id,post_key", ignoreDuplicates: true });
   return { ok: true };
 }

@@ -12,9 +12,10 @@ export const demoViewer: Viewer = {
   email: "demo@example.com",
   displayName: "デモ利用者",
   role: "admin",
-  plan: "pro",
-  maxOshi: 50,
-  maxSources: 300,
+ 
+  plan: "master",
+  maxOshi: null,
+  maxSources: null,
   oshiCount: 5,
   sourceCount: 18,
   hasMfa: true,
@@ -32,11 +33,11 @@ export const demoCategories: Category[] = [
 ];
 
 export const demoOshi: Oshi[] = [
-  { id: "o1", name: "汐見 うた", color: "#3FC8E4", note: "ソプラノ担当。毎週金曜に歌配信。", group_id: "g1", agency_id: "a1", genre_id: "j1", last_seen_at: ago(30) },
-  { id: "o2", name: "波多野 りん", color: "#EC6FA9", note: "", group_id: "g1", agency_id: "a1", genre_id: "j1", last_seen_at: ago(6) },
-  { id: "o3", name: "真砂 こはく", color: "#F08A24", note: "Blogの更新が多い。", group_id: "g1", agency_id: "a1", genre_id: "j1", last_seen_at: ago(50) },
-  { id: "o4", name: "夜凪 しずく(よなぎ しずく)とても長い名前の表示確認用", color: "#8E5AD6", note: "", group_id: "g2", agency_id: "a2", genre_id: "j2", last_seen_at: ago(2) },
-  { id: "o5", name: "灯台守のトーリ", color: "#8CC63F", note: "", group_id: null, agency_id: "a2", genre_id: "j2", last_seen_at: ago(100) },
+  { id: "o1", name: "汐見 うた", color: "#3FC8E4", note: "ソプラノ担当。毎週金曜に歌配信。", group_id: "g1", group_ids: ["g1"], agency_id: "a1", genre_id: "j1", last_seen_at: ago(30), sns: [{ platform: "youtube", url: "https://www.youtube.com/@shiomi_uta", from: "本人" }, { platform: "blog", url: "https://minamo-choir.example.com/", from: "ミナモ区立合唱部" }] },
+  { id: "o2", name: "波多野 りん", color: "#EC6FA9", note: "", group_id: "g1", group_ids: ["g1"], agency_id: "a1", genre_id: "j1", last_seen_at: ago(6), sns: [] },
+  { id: "o3", name: "真砂 こはく", color: "#F08A24", note: "Blogの更新が多い。", group_id: "g1", group_ids: ["g1"], agency_id: "a1", genre_id: "j1", last_seen_at: ago(50), sns: [] },
+  { id: "o4", name: "夜凪 しずく(よなぎ しずく)とても長い名前の表示確認用", color: "#8E5AD6", note: "", group_id: "g2", group_ids: ["g2"], agency_id: "a2", genre_id: "j2", last_seen_at: ago(2), sns: [] },
+  { id: "o5", name: "灯台守のトーリ", color: "#8CC63F", note: "", group_id: null, group_ids: [], agency_id: "a2", genre_id: "j2", last_seen_at: ago(100), sns: [] },
 ];
 
 const source = (id: string, oshi: string, platform: Source["platform"], handle: string, url: string): Source => ({
@@ -102,17 +103,17 @@ export const demoTimeline: TimelineItem[] = [
 ];
 
 export const demoAdminStats: AdminStats = {
-  users: 1284, users_7d: 96, suspended: 3, pro: 142, oshi: 4310, sources: 15872,
+  users: 1284, users_7d: 96, suspended: 3, paid: 142, oshi: 4310, sources: 15872,
   feeds_active: 2640, feeds_error: 7, feeds_paused: 2, items_24h: 5318,
   fetch_ok_24h: 61240, fetch_ng_24h: 318, youtube_units_today: 6420,
 };
 
 export const demoAdminUsers: AdminUser[] = [
-  { id: "u1", email: "demo@example.com", display_name: "デモ利用者", role: "admin", suspended_at: null, created_at: ago(2400), plan: "pro", oshi_count: 5, source_count: 17 },
-  { id: "u2", email: "very.long.mail.address.for.layout.check@subdomain.example.co.jp", display_name: "表示名がとても長い利用者さんの表示確認用アカウント", role: "user", suspended_at: null, created_at: ago(900), plan: "free", oshi_count: 3, source_count: 12 },
-  { id: "u3", email: "minato@example.com", display_name: "みなと", role: "user", suspended_at: null, created_at: ago(480), plan: "pro", oshi_count: 21, source_count: 96 },
-  { id: "u4", email: "spam@example.com", display_name: "", role: "user", suspended_at: ago(30), created_at: ago(72), plan: "free", oshi_count: 3, source_count: 15 },
-  { id: "u5", email: "nagisa@example.com", display_name: "なぎさ", role: "user", suspended_at: null, created_at: ago(20), plan: "free", oshi_count: 1, source_count: 4 },
+  { id: "u1", email: "demo@example.com", display_name: "デモ利用者", suspended_at: null, created_at: ago(2400), plan: "master", oshi_count: 5, source_count: 17 },
+  { id: "u2", email: "very.long.mail.address.for.layout.check@subdomain.example.co.jp", display_name: "表示名がとても長い利用者さんの表示確認用アカウント", suspended_at: null, created_at: ago(900), plan: "free", oshi_count: 3, source_count: 12 },
+  { id: "u3", email: "minato@example.com", display_name: "みなと", suspended_at: null, created_at: ago(480), plan: "paid", oshi_count: 21, source_count: 96 },
+  { id: "u4", email: "spam@example.com", display_name: "", suspended_at: ago(30), created_at: ago(72), plan: "free", oshi_count: 3, source_count: 15 },
+  { id: "u5", email: "nagisa@example.com", display_name: "なぎさ", suspended_at: null, created_at: ago(20), plan: "free", oshi_count: 1, source_count: 4 },
 ];
 
 export const demoAdminFeeds: AdminFeed[] = [

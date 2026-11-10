@@ -47,17 +47,15 @@ http://localhost:3000 を開く。架空のデータで全画面(管理画面は
 
 一度Googleでログインしたあと、SQL Editor で実行する。
 
-```sql
-update public.profiles set role = 'admin' where email = '運営者のメールアドレス';
-```
-
-その後、設定画面で二段階認証を有効にすると /admin を開ける。
+運営者は今のアプリのマスター（`oshikatsu_profiles.plan = 'master'`）。
+マスターが設定画面で二段階認証を有効にすると /admin を開ける。
 
 ### 4. 定期取得
 
-`vercel.json` で `/api/cron/fetch` を15分おきに呼ぶ設定にしてある (各取得元の取得間隔は既定60分)。
-Vercel の定期実行はプランによって頻度に制限があるため、契約プランの条件を確認すること。
-制限に掛かる場合は、外部のスケジューラから `Authorization: Bearer <CRON_SECRET>` を付けて同じURLを呼べばよい。
+`vercel.json` で `/api/cron/fetch` を毎日 09:00 UTC（日本時間 18:00）に呼ぶ設定にしてある。
+Vercel の無料プラン（Hobby）の定期実行は1日1回までのため、それ以外は新着画面の「更新」ボタン（`POST /api/feeds/refresh`）で取りに行く。
+「更新」は本人が登録した取得元のうち前回の取得から10分以上たったものだけを取り、1人1時間に6回まで。
+1日の取得が45秒に収まらないほど取得元が増えたら、外部のスケジューラから `Authorization: Bearer <CRON_SECRET>` を付けて同じURLを追加で呼べばよい。
 
 ### 5. Stripe (有料プランを使う場合)
 

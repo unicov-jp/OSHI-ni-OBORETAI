@@ -2,7 +2,7 @@ export type Platform = "youtube" | "blog" | "x" | "instagram" | "threads" | "tik
 export type SourceMode = "feed" | "embed" | "link";
 export type CategoryKind = "group" | "agency" | "genre";
 export type ViewMode = "oshi" | CategoryKind;
-export type Plan = "free" | "pro";
+export type Plan = "free" | "paid" | "master";
 
 export type Category = {
   id: string;
@@ -10,15 +10,20 @@ export type Category = {
   name: string;
 };
 
+// 今のアプリの記録(oshikatsu_records の kind = 'oshi')から組み立てた推し。
+// グループは兼任があるため複数持つ(先頭がメイン)。group_id は先頭のグループ。
 export type Oshi = {
   id: string;
   name: string;
   color: string;
   note: string;
   group_id: string | null;
+  group_ids: string[];
   agency_id: string | null;
   genre_id: string | null;
   last_seen_at: string;
+  // 今のアプリで推しに登録してあるSNSのURL(取り込みの候補)
+  sns: { platform: Platform; url: string; from: string }[];
 };
 
 export type Source = {
@@ -49,8 +54,9 @@ export type Viewer = {
   displayName: string;
   role: "user" | "admin";
   plan: Plan;
-  maxOshi: number;
-  maxSources: number;
+  // 上限なし(マスター)は null
+  maxOshi: number | null;
+  maxSources: number | null;
   oshiCount: number;
   sourceCount: number;
   hasMfa: boolean;
@@ -66,7 +72,7 @@ export type AdminStats = {
   users: number;
   users_7d: number;
   suspended: number;
-  pro: number;
+  paid: number;
   oshi: number;
   sources: number;
   feeds_active: number;
@@ -82,7 +88,6 @@ export type AdminUser = {
   id: string;
   email: string;
   display_name: string;
-  role: "user" | "admin";
   suspended_at: string | null;
   created_at: string;
   plan: Plan;

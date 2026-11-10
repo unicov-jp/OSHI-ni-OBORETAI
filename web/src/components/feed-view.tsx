@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition, type CSSProperties } from "react";
 import { Dialog } from "@/components/dialog";
 import { EmbedCard } from "@/components/embeds";
@@ -58,6 +59,37 @@ export function FeedView({ view, tabs, activeTab, platform, oshi, sources, items
   const [embedLimit, setEmbedLimit] = useState(4);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshNote, setRefreshNote] = useState<{ tone: "ok" | "warn" | "danger"; text: string } | null>(null);
+
+  // 手動の「更新」: 登録したYouTube・Blogの新着をその場で取りに行き、画面を読み直す
+  const refresh = async () => {
+    setRefreshing(true);
+    setRefreshNote(null);
+    try {
+      const response = await fetch("/api/feeds/refresh", { method: "POST" });
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string; claimed?: number; ok?: number; failed?: number; added?: number;
+      };
+      if (!response.ok) {
+        setRefreshNote({ tone: "danger", text: body.error ?? "更新できませんでした" });
+      } else if (!body.claimed) {
+        setRefreshNote({ tone: "ok", text: "最新の状態です(取得から10分以内のものは取り直しません)" });
+      } else {
+        const failed = body.failed ? `(${body.failed}件は取得できませんでした)` : "";
+        setRefreshNote({
+          tone: body.failed ? "warn" : "ok",
+          text: body.added ? `新着が${body.added}件ありました${failed}` : `新着はありませんでした${failed}`,
+        });
+        router.refresh();
+      }
+    } catch {
+      setRefreshNote({ tone: "danger", text: "通信できませんでした。電波の良いところでお試しください。" });
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const oshiById = useMemo(() => new Map(oshi.map((o) => [o.id, o])), [oshi]);
   const tabSources = useMemo(
@@ -103,7 +135,7 @@ export function FeedView({ view, tabs, activeTab, platform, oshi, sources, items
     <div className="lg:grid lg:grid-cols-[248px_minmax(0,1fr)] lg:gap-6">
       {/* タブ: PCは左の縦並び、スマホは横スクロール */}
       <aside className="lg:sticky lg:top-[76px] lg:h-[calc(100dvh-96px)] lg:overflow-y-auto">
-        <div role="group" aria-label="表示単位" className="grid h-10 grid-cols-4 rounded-lg border border-line bg-sunken p-[3px]">
+        <div role="group" aria-label="表示単位" className="grid h-10 grid-cols-3 rounded-lg border border-line bg-sunken p-[3px]">
           {VIEW_MODES.map((mode) => (
             <Link
               key={mode}
@@ -145,12 +177,20 @@ export function FeedView({ view, tabs, activeTab, platform, oshi, sources, items
             <Clamp as="h2" className="text-xl leading-7 font-bold">{activeTab.name}</Clamp>
             <Clamp as="p" className="text-[13px] text-muted">{subtitle}</Clamp>
           </div>
+          <Button size="sm" className="w-[88px]" onClick={refresh} disabled={refreshing}>
+            {refreshing ? "更新中" : "更新"}
+          </Button>
           <Link href="/app/manage" className={buttonClass("secondary", "sm")}>
             登録を編集
           </Link>
         </header>
         {/* 水面の線: このタブのメンバーカラー */}
         <div aria-hidden className="h-[3px] rounded-full" style={waterline(activeTab.colors)} />
+        {refreshNote ? (
+          <div className="mt-3">
+            <Notice tone={refreshNote.tone}>{refreshNote.text}</Notice>
+          </div>
+        ) : null}
 
         <nav aria-label="サービスで絞り込む" className="scroll-x mt-4 flex gap-2 pb-1">
           {(["all", ...platforms] as (Platform | "all")[]).map((p) => {
@@ -210,7 +250,7 @@ export function FeedView({ view, tabs, activeTab, platform, oshi, sources, items
                 items.length === 0 ? (
                   <EmptyState
                     title="新着はまだありません"
-                    body="YouTubeとBlogの新着は自動で取得してここに並びます。X・Instagram・TikTokは上の絞り込みから開けます。"
+                    body="YouTubeとBlogの新着は毎日18:00に自動で取得してここに並びます。すぐに見たいときは「更新」を押してください。X・Instagram・TikTokは上の絞り込みから開けます。"
                   />
                 ) : (
                   <div className="card-grid">

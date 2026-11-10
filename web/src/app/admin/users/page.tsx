@@ -3,6 +3,7 @@ import Link from "next/link";
 import { UserActions } from "@/components/admin-actions";
 import { Badge, buttonClass, formatDateTime, inputClass } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
+import { PLAN_LABEL } from "@/lib/plans";
 import { getAdminUsers } from "@/lib/data";
 
 export const metadata: Metadata = { title: "利用者" };
@@ -42,7 +43,6 @@ export default async function AdminUsersPage({
             <col />
             <col className="w-[72px]" />
             <col className="w-[88px]" />
-            <col className="w-[88px]" />
             <col className="w-[110px]" />
             <col className="w-[150px]" />
             <col className="w-[76px]" />
@@ -52,7 +52,6 @@ export default async function AdminUsersPage({
               <th>表示名</th>
               <th>メール</th>
               <th>プラン</th>
-              <th>権限</th>
               <th>状態</th>
               <th>推し / 件数</th>
               <th>登録日時</th>
@@ -65,10 +64,9 @@ export default async function AdminUsersPage({
                 <td title={user.display_name}>{user.display_name || "未設定"}</td>
                 <td title={user.email}>{user.email}</td>
                 <td>
-                  <Badge tone={user.plan === "pro" ? "brand" : "neutral"}>{user.plan === "pro" ? "Pro" : "無料"}</Badge>
-                </td>
-                <td>
-                  <Badge tone={user.role === "admin" ? "warn" : "neutral"}>{user.role === "admin" ? "運営者" : "利用者"}</Badge>
+                  <Badge tone={user.plan === "master" ? "warn" : user.plan === "paid" ? "brand" : "neutral"}>
+                    {PLAN_LABEL[user.plan]}
+                  </Badge>
                 </td>
                 <td>
                   <Badge tone={user.suspended_at ? "danger" : "ok"}>{user.suspended_at ? "停止中" : "利用中"}</Badge>
@@ -84,7 +82,7 @@ export default async function AdminUsersPage({
             ))}
             {users.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-muted">
+                <td colSpan={7} className="text-muted">
                   該当する利用者がいません
                 </td>
               </tr>

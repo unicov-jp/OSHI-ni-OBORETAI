@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   }
 
   const retention = Number(process.env.ITEM_RETENTION_DAYS ?? 30);
-  await admin.rpc("cleanup_old_data", { retention_days: Number.isFinite(retention) ? retention : 30 });
+  await admin.rpc("oshikatsu_cleanup_old_data", { retention_days: Number.isFinite(retention) ? retention : 30 });
 
   return NextResponse.json({ ...totals, ms: Date.now() - started });
 }

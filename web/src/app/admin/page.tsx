@@ -31,7 +31,7 @@ export default async function AdminOverviewPage() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile label="利用者" value={stats.users} note={`直近7日で ${stats.users_7d}人`} />
-        <Tile label="Pro契約" value={stats.pro} note={`停止中の利用者 ${stats.suspended}人`} />
+        <Tile label="有料プラン" value={stats.paid} note={`停止中の利用者 ${stats.suspended}人`} />
         <Tile label="登録された推し" value={stats.oshi} note={`アカウント ${stats.sources.toLocaleString("ja-JP")}件`} />
         <Tile label="24時間の新着" value={stats.items_24h} />
         <Tile label="取得中の取得元" value={stats.feeds_active} note={`停止中 ${stats.feeds_paused}件`} />

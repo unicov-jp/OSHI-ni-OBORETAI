@@ -30,7 +30,10 @@
 - [x] P0 アプリ名を変更（今の本番）
 - [x] P1-a 添付アプリを `web/` に取り込み、型チェック・自己診断・ビルドを通す
 - [x] P1-b 新着用のDBを今の Supabase に合わせて追加し、権限テスト（48項目）を通す（`supabase/tests`）
-- [ ] P1-c 新着機能を今のデータにつなぐ：推しは `oshikatsu_records` の推し、SNSの登録・新着・未読・手動更新（`/api/feeds/refresh`）、毎日18:00の自動取得（`vercel.json` の cron を `0 9 * * *`）
+- [x] P1-c 新着機能を今のデータにつなぐ：推しは `oshikatsu_records` の推し、SNSの登録・新着・未読・手動更新（`/api/feeds/refresh`）、毎日18:00の自動取得（`vercel.json` の cron を `0 9 * * *`）
+  - 推しの追加・編集・削除は P3 まで今のアプリで行う。新しいアプリの「推しのSNS」では、今のアプリに登録済みのSNS（本人・グループ）をボタン1つで取り込める
+  - 表示単位は「推し・グループ（兼任は両方に出す）・事務所」。ジャンルは今の推しに無いので出さない
+  - 利用者一覧・プラン変更・表示名の変更・手動更新用のDB関数を新着用のSQLに追加（権限テスト 62項目）
 - [ ] P2 土台：ログイン（メール・Google・二段階認証）、同期（端末の控え＋差分同期）、テーマ（ライト・ダーク・推しカラー）、3DのON/OFF、画面の骨組み（ホーム・LIVE・チェキ・物販・集計・マイページのタブ）
 - [ ] P3 推し：推しの登録・編集（グループ・兼任・SNS・写真の切り抜き）、推しの管理ページ、ホーム（推しのカード・ギャラリー・遠征マップ・月別費用・並べ替え）
 - [ ] P4 記録：LIVE（カレンダー・チケット・観戦方法・会場検索・写真複数・セトリ・Googleカレンダー追加）、チェキ（表示5種・写真の編集）、物販、集計
@@ -39,7 +42,7 @@
 
 ## 依頼者にお願いする作業
 
-1. **新着用のSQLの実行**（いつ実行しても今のアプリには影響しない）：`supabase/migrations/20261110000000_oboretai_feeds.sql`
+1. **新着用のSQLの実行**（いつ実行しても今のアプリには影響しない。何度実行してもよいので、P1-c で関数を足した今の版を実行する）：`supabase/migrations/20261110000000_oboretai_feeds.sql`
 2. **確認用の Vercel プロジェクトの作成**（作り直しの途中を本番と別のURLで見るため）
    - Vercel で同じリポジトリから新しいプロジェクトを作り、Root Directory を `web`、Production Branch を作業ブランチ（`claude/new-session-csr476`）にする
    - 環境変数：`NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`、`SUPABASE_SECRET_KEY`（秘密）、`CRON_SECRET`（秘密）、`NEXT_PUBLIC_SITE_URL`（確認用のURL）

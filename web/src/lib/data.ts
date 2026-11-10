@@ -4,6 +4,7 @@ import {
   demoOshi, demoSources, demoTimeline,
 } from "@/lib/demo";
 import { DEMO } from "@/lib/env";
+import { recordsToLibrary, type OshiRecord } from "@/lib/records";
 import { createClient } from "@/lib/supabase/server";
 import type {
   AdminFeed, AdminStats, AdminUser, AuditLog, Category, FetchLog, Oshi, Platform, Source, TimelineItem,
@@ -14,25 +15,29 @@ export const PAGE_SIZE = 48;
 export async function getLibrary(): Promise<{ oshi: Oshi[]; categories: Category[]; sources: Source[] }> {
   if (DEMO) return { oshi: demoOshi, categories: demoCategories, sources: demoSources };
 
+  // 推しは今のアプリの記録(oshikatsu_records の kind = 'oshi')をそのまま使う
   const supabase = await createClient();
-  const [oshi, categories, sources] = await Promise.all([
+  const [records, seen, sources] = await Promise.all([
+    supabase.from("oshikatsu_records").select("id, data").eq("kind", "oshi").eq("deleted", false),
+    supabase.from("oshikatsu_feed_seen").select("oshi_id, last_seen_at"),
     supabase
-      .from("oshi")
-      .select("id, name, color, note, group_id, agency_id, genre_id, last_seen_at")
-      .order("created_at"),
-    supabase.from("categories").select("id, kind, name").order("name"),
-    supabase
-      .from("sources")
+      .from("oshikatsu_sources")
       .select("id, oshi_id, platform, mode, url, handle, label, feed_id")
       .order("created_at"),
   ]);
-  const failed = oshi.error ?? categories.error ?? sources.error;
+  const failed = records.error ?? seen.error ?? sources.error;
   if (failed) throw new Error(`データを読み込めませんでした: ${failed.message}`);
 
+  const seenMap: Record<string, string> = {};
+  for (const row of seen.data ?? []) seenMap[row.oshi_id as string] = row.last_seen_at as string;
+  const { oshi, categories } = recordsToLibrary((records.data ?? []) as OshiRecord[], seenMap);
+  const known = new Set(oshi.map((o) => o.id));
+
   return {
-    oshi: (oshi.data ?? []) as Oshi[],
-    categories: (categories.data ?? []) as Category[],
-    sources: (sources.data ?? []) as Source[],
+    oshi,
+    categories,
+    // 今のアプリで推しを削除した場合、その推しの登録は表示しない
+    sources: ((sources.data ?? []) as Source[]).filter((s) => known.has(s.oshi_id)),
   };
 }
 
@@ -53,7 +58,7 @@ export async function getTimeline(options: {
 
   const supabase = await createClient();
   let query = supabase
-    .from("timeline")
+    .from("oshikatsu_timeline")
     .select("item_id, oshi_id, source_id, platform, title, url, thumbnail_url, published_at")
     .in("oshi_id", options.oshiIds)
     .order("published_at", { ascending: false })
@@ -77,7 +82,7 @@ export async function getUnreadCounts(): Promise<Record<string, number>> {
   }
 
   const supabase = await createClient();
-  const { data } = await supabase.rpc("unread_counts");
+  const { data } = await supabase.rpc("oshikatsu_unread_counts");
   const counts: Record<string, number> = {};
   for (const row of (data ?? []) as { oshi_id: string; unread: number }[]) counts[row.oshi_id] = row.unread;
   return counts;
@@ -88,7 +93,7 @@ export async function getUnreadCounts(): Promise<Record<string, number>> {
 export async function getAdminStats(): Promise<AdminStats> {
   if (DEMO) return demoAdminStats;
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("admin_stats");
+  const { data, error } = await supabase.rpc("oshikatsu_admin_stats");
   if (error) throw new Error(`集計を読み込めませんでした: ${error.message}`);
   return data as AdminStats;
 }
@@ -98,7 +103,7 @@ export async function getAdminUsers(search: string, page: number): Promise<Admin
     return demoAdminUsers.filter((u) => !search || u.email.includes(search) || u.display_name.includes(search));
   }
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("admin_list_users", {
+  const { data, error } = await supabase.rpc("oshikatsu_admin_list_users", {
     search,
     page_size: 50,
     page_offset: page * 50,
@@ -110,7 +115,7 @@ export async function getAdminUsers(search: string, page: number): Promise<Admin
 export async function getAdminFeeds(status: string, page: number): Promise<AdminFeed[]> {
   if (DEMO) return demoAdminFeeds.filter((f) => !status || f.status === status);
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("admin_list_feeds", {
+  const { data, error } = await supabase.rpc("oshikatsu_admin_list_feeds", {
     only_status: status,
     page_size: 100,
     page_offset: page * 100,
@@ -123,15 +128,15 @@ export async function getFetchLogs(onlyFailed: boolean): Promise<FetchLog[]> {
   if (DEMO) return demoFetchLogs.filter((log) => !onlyFailed || !log.ok);
   const supabase = await createClient();
   let query = supabase
-    .from("fetch_logs")
-    .select("id, feed_id, ok, items_found, items_added, duration_ms, error, created_at, feeds(title)")
+    .from("oshikatsu_fetch_logs")
+    .select("id, feed_id, ok, items_found, items_added, duration_ms, error, created_at, oshikatsu_feeds(title)")
     .order("created_at", { ascending: false })
     .limit(100);
   if (onlyFailed) query = query.eq("ok", false);
   const { data, error } = await query;
   if (error) throw new Error(`取得ログを読み込めませんでした: ${error.message}`);
   return (data ?? []).map((row) => {
-    const feed = row.feeds as { title?: string } | { title?: string }[] | null;
+    const feed = row.oshikatsu_feeds as { title?: string } | { title?: string }[] | null;
     const title = Array.isArray(feed) ? feed[0]?.title : feed?.title;
     return {
       id: row.id as number,
@@ -151,21 +156,26 @@ export async function getAuditLogs(): Promise<AuditLog[]> {
   if (DEMO) return demoAuditLogs;
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("audit_logs")
-    .select("id, action, target, detail, created_at, profiles(email)")
+    .from("oshikatsu_audit_logs")
+    .select("id, admin_id, action, target, detail, created_at")
     .order("created_at", { ascending: false })
     .limit(100);
   if (error) throw new Error(`操作ログを読み込めませんでした: ${error.message}`);
-  return (data ?? []).map((row) => {
-    const profile = row.profiles as { email?: string } | { email?: string }[] | null;
-    const email = Array.isArray(profile) ? profile[0]?.email : profile?.email;
-    return {
-      id: row.id as number,
-      admin_email: email ?? "(削除済み)",
-      action: row.action as string,
-      target: row.target as string,
-      detail: row.detail as string,
-      created_at: row.created_at as string,
-    };
-  });
+
+  // 操作した運営者のメールアドレス(マスターは全員のプロフィールを読める)
+  const ids = [...new Set((data ?? []).map((row) => row.admin_id as string | null).filter(Boolean))] as string[];
+  const emails = new Map<string, string>();
+  if (ids.length > 0) {
+    const { data: profiles } = await supabase.from("oshikatsu_profiles").select("user_id, email").in("user_id", ids);
+    for (const p of profiles ?? []) emails.set(p.user_id as string, (p.email as string | null) ?? "");
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id as number,
+    admin_email: emails.get(row.admin_id as string) || "(削除済み)",
+    action: row.action as string,
+    target: row.target as string,
+    detail: row.detail as string,
+    created_at: row.created_at as string,
+  }));
 }

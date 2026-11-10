@@ -51,7 +51,7 @@ export function BillingButtons({ isPro, enabled }: { isPro: boolean; enabled: bo
   };
 
   if (!enabled) {
-    return <p className="text-sm text-muted">現在、Proプランの申し込みは受け付けていません。</p>;
+    return <p className="text-sm text-muted">有料プランの申し込みは準備中です。</p>;
   }
 
   return (
@@ -63,7 +63,7 @@ export function BillingButtons({ isPro, enabled }: { isPro: boolean; enabled: bo
         </Button>
       ) : (
         <Button variant="primary" onClick={() => run(startCheckout)} disabled={pending}>
-          Proプランに申し込む
+          有料プランに申し込む
         </Button>
       )}
     </div>

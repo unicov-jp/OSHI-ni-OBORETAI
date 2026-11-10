@@ -3,8 +3,11 @@
 import { useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
 import { Button, Notice } from "@/components/ui";
-import { refetchFeed, setFeedStatus, setRole, setSuspended } from "@/lib/actions/admin";
-import type { ActionResult, AdminFeed, AdminUser } from "@/lib/types";
+import { refetchFeed, setFeedStatus, setPlan, setSuspended } from "@/lib/actions/admin";
+import { PLAN_LABEL } from "@/lib/plans";
+import type { ActionResult, AdminFeed, AdminUser, Plan } from "@/lib/types";
+
+const PLANS: Plan[] = ["master", "paid", "free"];
 
 // 省略されたセルの全文を確認するボタン
 export function DetailButton({ title, text }: { title: string; text: string }) {
@@ -62,7 +65,7 @@ export function UserActions({ user, selfId }: { user: AdminUser; selfId: string 
           <p className="text-xs text-muted">利用者が誰を推しているかは、運営者にも表示されません。</p>
           {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
           {isSelf ? (
-            <Notice>自分自身の停止・権限変更はできません。</Notice>
+            <Notice>自分自身の停止・プラン変更はできません。</Notice>
           ) : (
             <div className="flex flex-wrap gap-2">
               <Button
@@ -74,17 +77,11 @@ export function UserActions({ user, selfId }: { user: AdminUser; selfId: string 
               >
                 {suspended ? "利用を再開する" : "利用を停止する"}
               </Button>
-              <Button
-                disabled={pending}
-                onClick={() =>
-                  run(
-                    () => setRole(user.id, user.role === "admin" ? "user" : "admin"),
-                    user.role === "admin" ? "運営者から外しました" : "運営者にしました",
-                  )
-                }
-              >
-                {user.role === "admin" ? "運営者から外す" : "運営者にする"}
-              </Button>
+              {PLANS.filter((p) => p !== user.plan).map((p) => (
+                <Button key={p} disabled={pending} onClick={() => run(() => setPlan(user.id, p), `${PLAN_LABEL[p]}にしました`)}>
+                  {PLAN_LABEL[p]}にする
+                </Button>
+              ))}
             </div>
           )}
         </div>

@@ -105,7 +105,10 @@ const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 
 // truncateAt を指定すると、その大きさで読むのをやめて、そこまでの本文を返す(ページの先頭だけ要る場合)。
-export async function safeFetchText(input: string, options: { truncateAt?: number } = {}): Promise<SafeResponse> {
+export async function safeFetchText(
+  input: string,
+  options: { truncateAt?: number; headers?: Record<string, string> } = {},
+): Promise<SafeResponse> {
   let current = new URL(input);
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -120,6 +123,7 @@ export async function safeFetchText(input: string, options: { truncateAt?: numbe
         headers: {
           "user-agent": "OshiOboretaiBot/1.0 (feed reader)",
           accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.8",
+          ...options.headers,
         },
       });
     } catch (error) {

@@ -114,6 +114,7 @@ async function main() {
     channelFromPage('<meta property="og:title" content="うた &amp; りん"><link rel="canonical" href="https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv">'),
     { channelId: "UCabcdefghijklmnopqrstuv", title: "うた & りん" },
   );
+  check("チャンネルページ ページ内のID", channelFromPage('{"browseId":"UCabcdefghijklmnopqrstuv"}')?.channelId, "UCabcdefghijklmnopqrstuv");
   check("チャンネルページ 見つからない", channelFromPage("<html></html>"), null);
 
   // --- 今のアプリの推しの記録の読み替え ---

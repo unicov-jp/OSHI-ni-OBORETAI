@@ -105,7 +105,10 @@ export function channelFromPage(html: string): { channelId: string; title: strin
   const id =
     /<link[^>]+rel="canonical"[^>]+href="https:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})"/.exec(html)?.[1] ??
     /<meta[^>]+property="og:url"[^>]+content="https:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})"/.exec(html)?.[1] ??
-    /"externalId":"(UC[A-Za-z0-9_-]{22})"/.exec(html)?.[1];
+    /<meta[^>]+itemprop="(?:identifier|channelId)"[^>]+content="(UC[A-Za-z0-9_-]{22})"/.exec(html)?.[1] ??
+    /"externalId":"(UC[A-Za-z0-9_-]{22})"/.exec(html)?.[1] ??
+    /"channelId":"(UC[A-Za-z0-9_-]{22})"/.exec(html)?.[1] ??
+    /"browseId":"(UC[A-Za-z0-9_-]{22})"/.exec(html)?.[1];
   if (!id) return null;
   const rawTitle = /<meta[^>]+property="og:title"[^>]+content="([^"]{0,200})"/.exec(html)?.[1] ?? "";
   const title = rawTitle
@@ -118,6 +121,10 @@ export function channelFromPage(html: string): { channelId: string; title: strin
 }
 
 async function resolveYoutubeHandleViaPage(handle: string): Promise<{ channelId: string; title: string } | null> {
-  const page = await safeFetchText(`https://www.youtube.com/@${encodeURIComponent(handle)}`, { truncateAt: 600 * 1024 });
+  // チャンネルIDはページの後ろの方にしか無いことがあるため、上限(2MB)の手前まで読む
+  const page = await safeFetchText(`https://www.youtube.com/@${encodeURIComponent(handle)}`, {
+    truncateAt: 1900 * 1024,
+    headers: { "accept-language": "ja,en;q=0.8", accept: "text/html" },
+  });
   return channelFromPage(page.text);
 }

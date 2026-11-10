@@ -68,8 +68,8 @@ LIVE・物販の一覧のカード（`ticketHtml` の `.ticket.fixed`）は、�
 
 1. SQL Editor で上記マイグレーションの SQL を実行する（または Supabase の GitHub 連携で適用する）。
 2. Authentication → URL Configuration
-   - Site URL：`https://oshikatsu-diary.vercel.app`
-   - Redirect URLs：`https://oshikatsu-diary.vercel.app/**`（プレビュー環境も使う場合は `https://*-minatani-01s-projects.vercel.app/**` も追加）
+   - Site URL：`https://oshi-ni-oboretai.vercel.app`
+   - Redirect URLs：`https://oshi-ni-oboretai.vercel.app/**` と旧URL `https://oshikatsu-diary.vercel.app/**`（プレビュー環境も使う場合は `https://*-minatani-01s-projects.vercel.app/**` も追加）
 3. Authentication → Sign In / Providers → Google を有効にし、Google Cloud Console で発行した OAuth クライアントID・シークレットを登録する。
    - Google 側の「承認済みのリダイレクト URI」には、Supabase の Google 設定画面に表示される Callback URL（`https://<project-ref>.supabase.co/auth/v1/callback`）を登録します。
 
@@ -160,7 +160,7 @@ LIVE の「会場」欄の右の「探す」ボタン（または Enter）で、
 
 - 会場名は、記録一覧で Google マップへのリンクになります（APIキー不要の検索URL）。
 - APIキーは Vercel の環境変数 `GOOGLE_MAPS_API_KEY` に設定し、`/api/config` の `googleMapsApiKey` でブラウザに渡します。キーが無いときは OpenStreetMap で検索します。
-- Google Cloud で有効にする API：**Maps JavaScript API**、**Places API (New)**。キーは「HTTPリファラー」を `https://oshikatsu-diary.vercel.app/*` に制限し、API の制限もこの2つにしてください。
+- Google Cloud で有効にする API：**Maps JavaScript API**、**Places API (New)**。キーは「HTTPリファラー」を `https://oshi-ni-oboretai.vercel.app/*`（旧URL `https://oshikatsu-diary.vercel.app/*` も残す）に制限し、API の制限もこの2つにしてください。
 - 今後「遠征マップ」を作るときは、`state.live` の `venuePlace.lat / lng` を使います。
 
 ## アプリとしてインストール（PWA）
@@ -226,7 +226,7 @@ LIVE の「会場」欄の右の「探す」ボタン（または Enter）で、
 - 表示した写真は端末の IndexedDB（`oshikatsu_photos`）に覚え、2回目からは通信しない。端末に無く、トークンも切れているときは、画面下に「Googleドライブの写真を表示する」を出し、押すと接続して表示し直す。
 - 別の端末でも同じ Google アカウントで接続すれば表示できる（drive.file は、そのアカウントでこのアプリが作ったファイルにだけアクセスできる）。
 - ドライブのフォルダやファイルを削除すると、アプリから写真が見えなくなる。記録を削除してもドライブのファイルは消さない。
-- 設定：Vercel の環境変数 `GOOGLE_OAUTH_CLIENT_ID`（ウェブアプリの OAuth クライアントID）と、接続を続けるための `GOOGLE_OAUTH_CLIENT_SECRET`（同じクライアントのシークレット。サーバーだけで使い、ブラウザへは返さない）。シークレットを使うときは、Supabase の SQL Editor で `20260928000000_oshikatsu_gdrive_tokens.sql` を実行しておく。未設定なら「写真の保存先」は出ず、写真は記録の中に持つ。Google Cloud で Google Drive API を有効にし、OAuth 同意画面に `drive.file` を追加し、OAuth クライアントの「承認済みの JavaScript 生成元」に `https://oshikatsu-diary.vercel.app` を入れる。
+- 設定：Vercel の環境変数 `GOOGLE_OAUTH_CLIENT_ID`（ウェブアプリの OAuth クライアントID）と、接続を続けるための `GOOGLE_OAUTH_CLIENT_SECRET`（同じクライアントのシークレット。サーバーだけで使い、ブラウザへは返さない）。シークレットを使うときは、Supabase の SQL Editor で `20260928000000_oshikatsu_gdrive_tokens.sql` を実行しておく。未設定なら「写真の保存先」は出ず、写真は記録の中に持つ。Google Cloud で Google Drive API を有効にし、OAuth 同意画面に `drive.file` を追加し、OAuth クライアントの「承認済みの JavaScript 生成元」に `https://oshi-ni-oboretai.vercel.app` と旧URL `https://oshikatsu-diary.vercel.app` を入れる。
 
 ## 端末の控え（キャッシュ）が保存できないとき
 
@@ -246,7 +246,7 @@ Google Cloud コンソールの「APIとサービス → 割り当て」でも�
 
 ## プライバシーポリシー
 
-`privacy.html`（公開URL：`https://oshikatsu-diary.vercel.app/privacy.html`）。ログイン画面とマイページの最下部からリンクしています。Google OAuth 同意画面の「プライバシーポリシーのリンク」にもこのURLを設定します。取得する情報や外部サービスを追加・変更したときは、このページも更新してください。
+`privacy.html`（公開URL：`https://oshi-ni-oboretai.vercel.app/privacy.html`）。ログイン画面とマイページの最下部からリンクしています。Google OAuth 同意画面の「プライバシーポリシーのリンク」にもこのURLを設定します。取得する情報や外部サービスを追加・変更したときは、このページも更新してください。
 
 ## Claude Codeでの作業にあたって
 

@@ -38,7 +38,7 @@ export async function resolveYoutubeHandle(
   const data = (await callApi("channels", { part: "id,snippet", forHandle: `@${handle}` })) as {
     items?: { id: string; snippet?: { title?: string } }[];
   };
-  await admin.rpc("bump_api_usage", { p_provider: "youtube", p_units: 1 });
+  await admin.rpc("oshikatsu_bump_api_usage", { p_provider: "youtube", p_units: 1 });
   const channel = data.items?.[0];
   if (!channel || !/^UC[A-Za-z0-9_-]{22}$/.test(channel.id)) return null;
   return { channelId: channel.id, title: channel.snippet?.title ?? "" };
@@ -60,7 +60,7 @@ export async function fetchYoutubeChannel(channelId: string, admin: SupabaseClie
       contentDetails?: { videoId?: string; videoPublishedAt?: string };
     }[];
   };
-  await admin.rpc("bump_api_usage", { p_provider: "youtube", p_units: 1 });
+  await admin.rpc("oshikatsu_bump_api_usage", { p_provider: "youtube", p_units: 1 });
 
   const items: ParsedItem[] = [];
   let title = "";

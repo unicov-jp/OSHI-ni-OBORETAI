@@ -4,9 +4,10 @@ import { redirect } from "next/navigation";
 import { demoViewer } from "@/lib/demo";
 import { DEMO } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
-import type { Viewer } from "@/lib/types";
+import type { Plan, Viewer } from "@/lib/types";
 
 // ログイン中の利用者を返す。未ログインならログイン画面へ、停止中なら案内画面へ送る。
+// 利用者とプランは今のアプリと同じ oshikatsu_profiles を使う(運営者 = マスター)。
 // 1リクエスト内では結果を使い回す。
 export const requireViewer = cache(async (): Promise<Viewer> => {
   if (DEMO) return demoViewer;
@@ -18,7 +19,11 @@ export const requireViewer = cache(async (): Promise<Viewer> => {
   if (!user) redirect("/login");
 
   const [{ data: profile }, { data: aal }, { data: factors }] = await Promise.all([
-    supabase.from("profiles").select("email, display_name, role, suspended_at").eq("id", user.id).maybeSingle(),
+    supabase
+      .from("oshikatsu_profiles")
+      .select("email, display_name, plan, suspended_at")
+      .eq("user_id", user.id)
+      .maybeSingle(),
     supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
     supabase.auth.mfa.listFactors(),
   ]);
@@ -30,35 +35,37 @@ export const requireViewer = cache(async (): Promise<Viewer> => {
   const aal2 = aal?.currentLevel === "aal2";
   if (hasMfa && !aal2) redirect("/auth/mfa");
 
-  const { data: planRows } = await supabase.rpc("my_plan");
-  const plan = (planRows?.[0] ?? null) as {
-    plan: "free" | "pro";
-    max_oshi: number;
-    max_sources: number;
+  const { data: planRows } = await supabase.rpc("oshikatsu_my_plan");
+  const row = (planRows?.[0] ?? null) as {
+    plan: Plan;
+    max_oshi: number | null;
+    max_sources: number | null;
     oshi_count: number;
     source_count: number;
   } | null;
+  const plan: Plan = row?.plan ?? ((profile.plan as Plan) || "free");
 
   return {
     id: user.id,
-    email: profile.email as string,
+    email: (profile.email as string | null) ?? user.email ?? "",
     displayName: (profile.display_name as string) || "",
-    role: profile.role as "user" | "admin",
-    plan: plan?.plan ?? "free",
-    maxOshi: plan?.max_oshi ?? 3,
-    maxSources: plan?.max_sources ?? 15,
-    oshiCount: plan?.oshi_count ?? 0,
-    sourceCount: plan?.source_count ?? 0,
+    role: plan === "master" ? "admin" : "user",
+    plan,
+    maxOshi: row ? row.max_oshi : 3,
+    maxSources: row ? row.max_sources : 15,
+    oshiCount: row?.oshi_count ?? 0,
+    sourceCount: row?.source_count ?? 0,
     hasMfa,
     aal2,
     isDemo: false,
   };
 });
 
-// 運営者のみ通す。運営者は二段階認証が必須。
+// 運営者(マスター)のみ通す。運営者は二段階認証が必須。
 export async function requireAdmin(): Promise<Viewer> {
   const viewer = await requireViewer();
   if (viewer.role !== "admin") redirect("/app");
   if (!viewer.aal2) redirect("/app/settings?notice=admin-mfa");
   return viewer;
 }
+

@@ -3,6 +3,7 @@
 import { parseFeedXml } from "@/lib/fetchers/rss";
 import { isPublicAddress, safeFetchText } from "@/lib/fetchers/safe-fetch";
 import { embedHandle, parseAccountUrl } from "@/lib/platforms";
+import { recordsToLibrary } from "@/lib/records";
 
 let failed = 0;
 function check(name: string, actual: unknown, expected: unknown) {
@@ -105,6 +106,38 @@ async function main() {
   check("javascript: は不可", pick("javascript:alert(1)"), "error");
   check("埋め込みハンドルの検証(不正)", embedHandle("x", '@a"onload=x'), null);
   check("埋め込みハンドルの検証(正常)", embedHandle("tiktok", "@some.user"), "some.user");
+
+  // --- 今のアプリの推しの記録の読み替え ---
+  const lib = recordsToLibrary(
+    [
+      { id: "b", data: { name: "後", color: "#abc", _order: 1, agency: "事務所A", group: "旧グループ", sns_group_youtube: "UCabcdefghijklmnopqrstuv" } },
+      {
+        id: "a",
+        data: {
+          name: "先", color: "red", _order: 0,
+          groups: [{ name: "G1", sns_x: "@g1" }, { name: "G2", sns_web: "g2.example.com" }],
+          sns_person_youtube: "@uta", sns_person_instagram: "uta.ig", sns_person_web: "https://blog.example.com/uta",
+        },
+      },
+      { id: "c", data: null },
+    ],
+    { a: "2026-01-01T00:00:00.000Z" },
+  );
+  check("推しの並び順", lib.oshi.map((o) => o.id), ["a", "b"]);
+  check("色の補正", lib.oshi.map((o) => o.color), ["#C9457A", "#aabbcc"]);
+  check("兼任のグループ", lib.oshi[0].group_ids, ["group:G1", "group:G2"]);
+  check("旧形式のグループ", lib.oshi[1].group_ids, ["group:旧グループ"]);
+  check("事務所", lib.oshi[1].agency_id, "agency:事務所A");
+  check("既読の時刻", lib.oshi[0].last_seen_at, "2026-01-01T00:00:00.000Z");
+  check("SNSのURL化", lib.oshi[0].sns.map((s) => `${s.platform} ${s.url} ${s.from}`), [
+    "youtube https://www.youtube.com/@uta 本人",
+    "blog https://blog.example.com/uta 本人",
+    "instagram https://www.instagram.com/uta.ig/ 本人",
+    "x https://x.com/g1 G1",
+    "blog https://g2.example.com G2",
+  ]);
+  check("YouTubeのチャンネルID", lib.oshi[1].sns.map((s) => s.url), ["https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv"]);
+  check("分類の一覧", lib.categories.map((c) => c.id).sort(), ["agency:事務所A", "group:G1", "group:G2", "group:旧グループ"]);
 
   console.log(failed === 0 ? "\nすべて成功" : `\n${failed}件 失敗`);
   process.exit(failed === 0 ? 0 : 1);

@@ -15,7 +15,8 @@ export const VIEW_LABEL: Record<ViewMode, string> = {
   genre: "ジャンル",
 };
 
-export const VIEW_MODES: ViewMode[] = ["oshi", "group", "agency", "genre"];
+// ジャンルは今のアプリの推しに無いので出さない
+export const VIEW_MODES: ViewMode[] = ["oshi", "group", "agency"];
 
 const KEY = { group: "group_id", agency: "agency_id", genre: "genre_id" } as const;
 
@@ -47,7 +48,8 @@ export function buildTabs(
   const key = KEY[view];
   const tabs: Tab[] = [all];
   for (const category of categories.filter((c) => c.kind === view)) {
-    const members = oshi.filter((o) => o[key] === category.id);
+    // グループは兼任があるため、所属するすべてのグループのタブに入れる
+    const members = oshi.filter((o) => (view === "group" ? o.group_ids.includes(category.id) : o[key] === category.id));
     if (members.length === 0) continue;
     const ids = members.map((o) => o.id);
     tabs.push({ id: category.id, name: category.name, colors: colorsOf(members), oshiIds: ids, unread: sum(ids) });

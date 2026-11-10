@@ -505,6 +505,84 @@ language sql security definer set search_path = '' as $$
       and not exists (select 1 from public.oshikatsu_sources s where s.feed_id = f.id);
 $$;
 
+-- 手動の「更新」用：その利用者が登録した取得元のうち、前回の取得から min_age_minutes 分以上たったものを確保する。
+-- 確保した時点で last_fetched_at を進め、同時に押されても二重に取得しないようにする（service_role のみ）。
+create or replace function public.oshikatsu_claim_user_feeds(uid uuid, min_age_minutes int default 10, batch int default 30)
+returns setof public.oshikatsu_feeds
+language sql security definer set search_path = '' as $$
+  update public.oshikatsu_feeds f
+  set last_fetched_at = now()
+  where f.id in (
+    select d.id from public.oshikatsu_feeds d
+    where d.status = 'active'
+      and (d.last_fetched_at is null or d.last_fetched_at < now() - make_interval(mins => greatest(min_age_minutes, 1)))
+      and exists (select 1 from public.oshikatsu_sources s where s.feed_id = d.id and s.user_id = uid)
+    order by d.last_fetched_at nulls first
+    limit least(greatest(batch, 1), 100)
+    for update skip locked
+  )
+  returning f.*;
+$$;
+
+-- 自分の表示名を変える（プランなど他の列は変えられない）
+create or replace function public.oshikatsu_set_display_name(new_name text) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.oshikatsu_session_ok() then
+    raise exception 'FORBIDDEN' using errcode = '42501';
+  end if;
+  if char_length(btrim(coalesce(new_name, ''))) > 40 then
+    raise exception 'TOO_LONG' using errcode = 'P0001';
+  end if;
+  update public.oshikatsu_profiles set display_name = btrim(coalesce(new_name, '')), updated_at = now()
+    where user_id = (select auth.uid());
+end;
+$$;
+
+-- 運営者向け：利用者の一覧（推し・SNSは件数だけ。中身は見ない）
+create or replace function public.oshikatsu_admin_list_users(search text default '', page_size int default 50, page_offset int default 0)
+returns table (
+  id uuid, email text, display_name text, plan text, suspended_at timestamptz, created_at timestamptz,
+  oshi_count int, source_count int
+)
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if not public.oshikatsu_is_admin() then
+    raise exception 'FORBIDDEN' using errcode = '42501';
+  end if;
+  return query
+  select
+    p.user_id, coalesce(p.email, ''), p.display_name, p.plan, p.suspended_at, p.created_at,
+    (select count(*)::int from public.oshikatsu_records r where r.user_id = p.user_id and r.kind = 'oshi' and not r.deleted),
+    (select count(*)::int from public.oshikatsu_sources s where s.user_id = p.user_id)
+  from public.oshikatsu_profiles p
+  where coalesce(search, '') = ''
+    or p.email ilike '%' || search || '%'
+    or p.display_name ilike '%' || search || '%'
+  order by case p.plan when 'master' then 1 when 'paid' then 2 else 3 end, p.created_at desc
+  limit least(greatest(page_size, 1), 200) offset greatest(page_offset, 0);
+end;
+$$;
+
+-- 運営者向け：プランの変更（自分自身は変えられない）。操作ログに残す
+create or replace function public.oshikatsu_admin_set_plan(target uuid, new_plan text) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.oshikatsu_is_admin() then
+    raise exception 'FORBIDDEN' using errcode = '42501';
+  end if;
+  if target = (select auth.uid()) then
+    raise exception 'SELF_CHANGE' using errcode = 'P0001';
+  end if;
+  if new_plan not in ('master', 'paid', 'free') then
+    raise exception 'INVALID_PLAN' using errcode = 'P0001';
+  end if;
+  update public.oshikatsu_profiles set plan = new_plan, updated_at = now() where user_id = target;
+  insert into public.oshikatsu_audit_logs (admin_id, action, target, detail)
+  values ((select auth.uid()), 'user.plan', target::text, new_plan);
+end;
+$$;
+
 grant all on public.oshikatsu_feeds, public.oshikatsu_feed_items, public.oshikatsu_sources, public.oshikatsu_feed_seen,
   public.oshikatsu_fetch_logs, public.oshikatsu_api_usage, public.oshikatsu_audit_logs, public.oshikatsu_rate_events
   to service_role;
@@ -530,6 +608,10 @@ revoke all on function public.oshikatsu_admin_set_feed_status(uuid, text) from p
 revoke all on function public.oshikatsu_claim_due_feeds(int, uuid) from public, anon, authenticated;
 revoke all on function public.oshikatsu_bump_api_usage(text, int) from public, anon, authenticated;
 revoke all on function public.oshikatsu_cleanup_old_data(int) from public, anon, authenticated;
+revoke all on function public.oshikatsu_claim_user_feeds(uuid, int, int) from public, anon, authenticated;
+revoke all on function public.oshikatsu_set_display_name(text) from public, anon;
+revoke all on function public.oshikatsu_admin_list_users(text, int, int) from public, anon;
+revoke all on function public.oshikatsu_admin_set_plan(uuid, text) from public, anon;
 
 grant execute on function public.oshikatsu_session_ok() to authenticated;
 grant execute on function public.oshikatsu_is_admin() to authenticated;
@@ -539,6 +621,9 @@ grant execute on function public.oshikatsu_admin_stats() to authenticated;
 grant execute on function public.oshikatsu_admin_list_feeds(text, int, int) to authenticated;
 grant execute on function public.oshikatsu_admin_set_suspended(uuid, boolean) to authenticated;
 grant execute on function public.oshikatsu_admin_set_feed_status(uuid, text) to authenticated;
+grant execute on function public.oshikatsu_set_display_name(text) to authenticated;
+grant execute on function public.oshikatsu_admin_list_users(text, int, int) to authenticated;
+grant execute on function public.oshikatsu_admin_set_plan(uuid, text) to authenticated;
 
 grant execute on function public.oshikatsu_plan_of(uuid) to service_role;
 grant execute on function public.oshikatsu_max_oshi(uuid) to service_role;
@@ -546,3 +631,4 @@ grant execute on function public.oshikatsu_max_sources(uuid) to service_role;
 grant execute on function public.oshikatsu_claim_due_feeds(int, uuid) to service_role;
 grant execute on function public.oshikatsu_bump_api_usage(text, int) to service_role;
 grant execute on function public.oshikatsu_cleanup_old_data(int) to service_role;
+grant execute on function public.oshikatsu_claim_user_feeds(uuid, int, int) to service_role;

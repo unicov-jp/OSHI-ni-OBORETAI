@@ -1,53 +1,47 @@
 "use client";
 
-import Link from "next/link";
 import { useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
 import {
-  Badge, Button, Clamp, EmptyState, Field, inputClass, Light, Notice,
+  Badge, Button, Clamp, EmptyState, inputClass, Light, Notice,
 } from "@/components/ui";
-import { deleteOshi, saveOshi } from "@/lib/actions/oshi";
 import { addSource, deleteSource } from "@/lib/actions/sources";
+import { atLimit, limitText } from "@/lib/plans";
 import {
-  MEMBER_COLORS, PLATFORM_EXAMPLE, PLATFORM_HOW, PLATFORM_LABEL, PLATFORM_MARK, PLATFORM_ORDER,
+  PLATFORM_EXAMPLE, PLATFORM_HOW, PLATFORM_LABEL, PLATFORM_MARK, PLATFORM_ORDER,
 } from "@/lib/platforms";
-import type { Category, CategoryKind, Oshi, Platform, Source, Viewer } from "@/lib/types";
+import type { Category, Oshi, Platform, Source, Viewer } from "@/lib/types";
 
 type Props = { viewer: Viewer; oshi: Oshi[]; categories: Category[]; sources: Source[] };
-type Editing = { id: string | null } | null;
 
+// 推しは今のアプリ(推し活手帳)の記録をそのまま表示する。推しの登録・編集は今のアプリで行い、
+// ここでは推しごとのSNS・Blog(新着を取る先)を登録する。
 export function ManageView({ viewer, oshi, categories, sources }: Props) {
-  const [editing, setEditing] = useState<Editing>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? "";
-  const atLimit = oshi.length >= viewer.maxOshi;
-  const target = editing?.id ? oshi.find((o) => o.id === editing.id) : undefined;
+  const target = editingId ? oshi.find((o) => o.id === editingId) : undefined;
+  const sourceFull = atLimit(sources.length, viewer.maxSources);
 
   return (
     <div className="mx-auto max-w-[1000px]">
       <header className="flex min-h-[60px] flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl leading-7 font-bold">推しの登録</h1>
+          <h1 className="text-xl leading-7 font-bold">推しのSNS</h1>
           <p className="num text-[13px] text-muted">
-            推し {oshi.length} / {viewer.maxOshi}人、アカウント {sources.length} / {viewer.maxSources}件
+            推し {limitText(oshi.length, viewer.maxOshi, "人")}、アカウント {limitText(sources.length, viewer.maxSources, "件")}
           </p>
         </div>
-        <Button variant="primary" disabled={atLimit} onClick={() => setEditing({ id: null })}>
-          推しを追加
-        </Button>
       </header>
 
-      {atLimit ? (
+      <div className="mt-3">
+        <Notice>推しの追加・編集・削除は、今のアプリ(推し活手帳)で行ってください。ここには自動で反映されます。</Notice>
+      </div>
+
+      {sourceFull ? (
         <div className="mt-3">
           <Notice tone="warn">
-            登録できる推しの上限({viewer.maxOshi}人)に達しています。
-            {viewer.plan === "free" ? (
-              <>
-                {" "}
-                <Link href="/app/settings" className="font-semibold underline">
-                  Proプランにすると50人まで登録できます
-                </Link>
-              </>
-            ) : null}
+            登録できるアカウントの上限({viewer.maxSources}件)に達しています。
+            {viewer.plan === "free" ? " 有料プランにすると300件まで登録できます(有料プランは準備中です)。" : ""}
           </Notice>
         </div>
       ) : null}
@@ -55,33 +49,29 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
       <div className="mt-5">
         {oshi.length === 0 ? (
           <EmptyState
-            title="最初の推しを登録しましょう"
-            body="名前とメンバーカラーを決めて、SNSやBlogのURLを貼るだけです。"
-            action={
-              <Button variant="primary" onClick={() => setEditing({ id: null })}>
-                推しを追加
-              </Button>
-            }
+            title="推しがまだ登録されていません"
+            body="今のアプリ(推し活手帳)で推しを登録すると、ここにSNSを登録できるようになります。"
           />
         ) : (
           <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {oshi.map((o) => {
-              const labels = [categoryName(o.group_id), categoryName(o.agency_id), categoryName(o.genre_id)]
-                .filter(Boolean)
-                .join(" / ");
+              const labels = [
+                ...o.group_ids.map((id) => categoryName(id)),
+                categoryName(o.agency_id),
+              ].filter(Boolean).join(" / ");
               const count = sources.filter((s) => s.oshi_id === o.id).length;
               return (
                 <li key={o.id} className="flex h-[76px] min-w-0 items-center gap-4 rounded-xl border border-line bg-surface px-4">
                   <Light color={o.color} className="h-11 w-[6px]" />
                   <div className="min-w-0 flex-1">
                     <Clamp className="text-[15px] font-semibold">{o.name}</Clamp>
-                    <Clamp className="text-[13px] text-muted">{labels || "分類なし"}</Clamp>
+                    <Clamp className="text-[13px] text-muted">{labels || "所属なし"}</Clamp>
                   </div>
                   <Badge>
                     <span className="num">{count}件</span>
                   </Badge>
-                  <Button size="sm" onClick={() => setEditing({ id: o.id })}>
-                    編集
+                  <Button size="sm" className="w-[88px]" onClick={() => setEditingId(o.id)}>
+                    SNSを登録
                   </Button>
                 </li>
               );
@@ -91,171 +81,76 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
       </div>
 
       <Dialog
-        open={editing !== null}
-        onClose={() => setEditing(null)}
-        title={target ? `${target.name} を編集` : "推しを追加"}
+        open={target !== undefined}
+        onClose={() => setEditingId(null)}
+        title={target ? `${target.name} のSNS` : ""}
         wide
       >
-        {editing ? (
-          <OshiEditor
-            key={editing.id ?? "new"}
-            oshi={target}
-            categories={categories}
-            sources={sources.filter((s) => s.oshi_id === editing.id)}
-            categoryName={categoryName}
-            onCreated={(id) => setEditing({ id })}
-            onClose={() => setEditing(null)}
-          />
+        {target ? (
+          <div className="space-y-6">
+            <SnsCandidates oshi={target} sources={sources.filter((s) => s.oshi_id === target.id)} disabled={sourceFull} />
+            <SourceEditor key={target.id} oshiId={target.id} sources={sources.filter((s) => s.oshi_id === target.id)} />
+          </div>
         ) : null}
       </Dialog>
     </div>
   );
 }
 
-function OshiEditor({
-  oshi, categories, sources, categoryName, onCreated, onClose,
-}: {
-  oshi?: Oshi;
-  categories: Category[];
-  sources: Source[];
-  categoryName: (id: string | null) => string;
-  onCreated: (id: string) => void;
-  onClose: () => void;
-}) {
-  const [name, setName] = useState(oshi?.name ?? "");
-  const [color, setColor] = useState(oshi?.color ?? MEMBER_COLORS[7].value);
-  const [note, setNote] = useState(oshi?.note ?? "");
-  const [group, setGroup] = useState(categoryName(oshi?.group_id ?? null));
-  const [agency, setAgency] = useState(categoryName(oshi?.agency_id ?? null));
-  const [genre, setGenre] = useState(categoryName(oshi?.genre_id ?? null));
-  const [message, setMessage] = useState<{ tone: "ok" | "danger"; text: string } | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+// 今のアプリで推しに登録してあるSNS(本人・グループ)を、ボタン1つで新着の取得先に取り込む
+function SnsCandidates({ oshi, sources, disabled }: { oshi: Oshi; sources: Source[]; disabled: boolean }) {
   const [pending, startTransition] = useTransition();
+  const [busyUrl, setBusyUrl] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ tone: "ok" | "danger" | "warn"; text: string } | null>(null);
 
-  const save = () => {
+  const normalize = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
+  const registered = new Set(sources.map((s) => normalize(s.url)));
+  const candidates = oshi.sns.filter((c) => !registered.has(normalize(c.url)));
+  if (candidates.length === 0) return null;
+
+  const add = (platform: Platform, url: string) => {
     setMessage(null);
+    setBusyUrl(url);
     startTransition(async () => {
-      const result = await saveOshi({ id: oshi?.id, name, color, note, group, agency, genre });
+      const result = await addSource({ oshiId: oshi.id, url, expected: platform });
+      setBusyUrl(null);
       if (!result.ok) return setMessage({ tone: "danger", text: result.error });
-      if (!oshi && result.data) {
-        onCreated(result.data.id);
-      } else {
-        setMessage({ tone: "ok", text: "保存しました" });
-      }
+      setMessage(result.data?.note ? { tone: "warn", text: result.data.note } : { tone: "ok", text: "取り込みました" });
     });
   };
-
-  const remove = () => {
-    if (!oshi) return;
-    startTransition(async () => {
-      const result = await deleteOshi(oshi.id);
-      if (!result.ok) return setMessage({ tone: "danger", text: result.error });
-      onClose();
-    });
-  };
-
-  const categoryField = (kind: CategoryKind, label: string, value: string, set: (v: string) => void) => (
-    <Field label={label}>
-      <input
-        className={inputClass}
-        value={value}
-        maxLength={40}
-        list={`list-${kind}`}
-        onChange={(event) => set(event.target.value)}
-        placeholder="未設定"
-      />
-      <datalist id={`list-${kind}`}>
-        {categories.filter((c) => c.kind === kind).map((c) => (
-          <option key={c.id} value={c.name} />
-        ))}
-      </datalist>
-    </Field>
-  );
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-4">
-        <Field label="名前">
-          <input
-            className={inputClass}
-            value={name}
-            maxLength={40}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="推しの名前"
-          />
-        </Field>
-
-        <fieldset>
-          <legend className="mb-1 text-[13px] font-medium">メンバーカラー</legend>
-          <div className="flex flex-wrap items-center gap-2">
-            {MEMBER_COLORS.map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                title={c.name}
-                aria-label={c.name}
-                aria-pressed={color.toLowerCase() === c.value.toLowerCase()}
-                onClick={() => setColor(c.value)}
-                className={`h-9 w-9 shrink-0 rounded-full border-2 ${
-                  color.toLowerCase() === c.value.toLowerCase() ? "border-text" : "border-line"
-                }`}
-                style={{ background: c.value }}
-              />
-            ))}
-            <label className="flex h-9 items-center gap-2 rounded-lg border border-line px-2 text-[13px] text-muted">
-              ほかの色
-              <input
-                type="color"
-                value={color}
-                onChange={(event) => setColor(event.target.value)}
-                className="h-6 w-8 cursor-pointer border-0 bg-transparent p-0"
-              />
-            </label>
-          </div>
-        </fieldset>
-
-        <div className="grid gap-4 sm:grid-cols-3">
-          {categoryField("group", "グループ", group, setGroup)}
-          {categoryField("agency", "事務所", agency, setAgency)}
-          {categoryField("genre", "ジャンル", genre, setGenre)}
+    <section>
+      <h3 className="text-[15px] font-semibold">今のアプリに登録してあるSNS</h3>
+      <p className="mt-1 text-[13px] text-muted">押すと、新着を取る先として登録します。</p>
+      <ul className="mt-2 divide-y divide-line">
+        {candidates.map((c) => (
+          <li key={c.url} className="flex h-12 items-center gap-3">
+            <span className="flex h-8 w-12 shrink-0 items-center justify-center rounded-md border border-line text-[11px] font-bold">
+              {PLATFORM_MARK[c.platform]}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="clamp-1 block text-sm" title={c.url}>{c.url}</span>
+              <span className="clamp-1 block text-xs text-muted">{c.from}</span>
+            </span>
+            <Button
+              size="sm"
+              variant="primary"
+              className="w-[88px]"
+              disabled={pending || disabled}
+              onClick={() => add(c.platform, c.url)}
+            >
+              {busyUrl === c.url ? "確認中" : "取り込む"}
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {message ? (
+        <div className="mt-2">
+          <Notice tone={message.tone}>{message.text}</Notice>
         </div>
-
-        <Field label="メモ" hint={`${note.length} / 200文字`}>
-          <textarea
-            className={`${inputClass} h-[76px] resize-none py-2`}
-            value={note}
-            maxLength={200}
-            onChange={(event) => setNote(event.target.value)}
-          />
-        </Field>
-
-        {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="primary" onClick={save} disabled={pending || !name.trim()}>
-            {oshi ? "変更を保存" : "登録してアカウントを追加する"}
-          </Button>
-          {oshi ? (
-            confirmDelete ? (
-              <>
-                <Button variant="danger" onClick={remove} disabled={pending}>
-                  登録アカウントごと削除する
-                </Button>
-                <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
-                  やめる
-                </Button>
-              </>
-            ) : (
-              <Button variant="ghost" onClick={() => setConfirmDelete(true)}>
-                この推しを削除
-              </Button>
-            )
-          ) : null}
-        </div>
-      </div>
-
-      {oshi ? <SourceEditor oshiId={oshi.id} sources={sources} /> : null}
-    </div>
+      ) : null}
+    </section>
   );
 }
 

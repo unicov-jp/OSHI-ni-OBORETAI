@@ -5,6 +5,7 @@ import { BillingButtons, DisplayNameForm } from "@/components/settings-forms";
 import { ThemeSwitch } from "@/components/theme-switch";
 import { Badge, buttonClass, formatDateTime, Notice, Section } from "@/components/ui";
 import { requireViewer } from "@/lib/auth";
+import { limitText, PLAN_LABEL } from "@/lib/plans";
 import { DEMO } from "@/lib/env";
 import { billingEnabled, proPriceLabel } from "@/lib/stripe";
 import { createClient } from "@/lib/supabase/server";
@@ -18,6 +19,8 @@ const NOTICES: Record<string, { tone: "ok" | "warn"; text: string }> = {
 
 async function subscriptionInfo(): Promise<{ periodEnd: string | null; cancelAtEnd: boolean }> {
   if (DEMO) return { periodEnd: new Date(Date.now() + 20 * 86400_000).toISOString(), cancelAtEnd: false };
+  // 課金(Stripe)は保留中。設定されるまでは契約の情報を読まない
+  if (!billingEnabled()) return { periodEnd: null, cancelAtEnd: false };
   const supabase = await createClient();
   const { data } = await supabase
     .from("subscriptions")
@@ -33,7 +36,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const [{ notice }, viewer] = await Promise.all([searchParams, requireViewer()]);
   const [price, subscription] = await Promise.all([DEMO ? null : proPriceLabel(), subscriptionInfo()]);
   const banner = notice ? NOTICES[notice] : undefined;
-  const isPro = viewer.plan === "pro";
+  const isPro = viewer.plan === "paid";
 
   return (
     <div className="mx-auto max-w-[760px] space-y-5">
@@ -68,9 +71,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       <Section title="プラン">
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
-            <Badge tone={isPro ? "brand" : "neutral"}>{isPro ? "Pro" : "無料"}</Badge>
+            <Badge tone={viewer.plan === "master" ? "warn" : isPro ? "brand" : "neutral"}>{PLAN_LABEL[viewer.plan]}</Badge>
             <p className="num text-sm text-muted">
-              推し {viewer.oshiCount} / {viewer.maxOshi}人、アカウント {viewer.sourceCount} / {viewer.maxSources}件
+              推し {limitText(viewer.oshiCount, viewer.maxOshi, "人")}、アカウント {limitText(viewer.sourceCount, viewer.maxSources, "件")}
             </p>
           </div>
           <div className="overflow-hidden rounded-lg border border-line">
@@ -79,7 +82,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                 <tr>
                   <th className="w-[40%]">できること</th>
                   <th>無料</th>
-                  <th>Pro{price ? `(${price})` : ""}</th>
+                  <th>有料{price ? `(${price})` : ""}</th>
                 </tr>
               </thead>
               <tbody>
@@ -102,7 +105,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               {formatDateTime(subscription.periodEnd)}
             </p>
           ) : null}
-          <BillingButtons isPro={isPro} enabled={DEMO || billingEnabled()} />
+          {viewer.plan === "master" ? null : <BillingButtons isPro={isPro} enabled={DEMO || billingEnabled()} />}
           <p className="text-xs text-muted">
             お支払いはStripeの画面で行います。カード情報は当アプリには保存されません。
             <Link href="/legal/tokushoho" className="ml-1 underline">

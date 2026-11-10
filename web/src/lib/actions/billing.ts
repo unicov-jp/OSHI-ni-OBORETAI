@@ -28,8 +28,8 @@ async function customerFor(userId: string, email: string): Promise<string> {
 export async function startCheckout(): Promise<ActionResult> {
   if (DEMO) return { ok: false, error: "デモ表示では申し込めません" };
   const viewer = await requireViewer();
-  if (!billingEnabled()) return { ok: false, error: "現在、Proプランの申し込みは受け付けていません" };
-  if (viewer.plan === "pro") return openPortal();
+  if (!billingEnabled()) return { ok: false, error: "有料プランの申し込みは準備中です" };
+  if (viewer.plan !== "free") return openPortal();
 
   let url: string | null = null;
   try {

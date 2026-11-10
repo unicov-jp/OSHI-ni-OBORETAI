@@ -16,7 +16,7 @@ import type { ActionResult, Platform, SourceMode } from "@/lib/types";
 const DEMO_ERROR = "デモ表示では変更できません";
 
 const addSchema = z.object({
-  oshiId: z.string().uuid(),
+  oshiId: z.string().trim().min(1).max(100),
   url: z.string().trim().min(1).max(500),
   label: z.string().trim().max(60).default(""),
   // どのサービスの区画から追加したか。入力されたURLがそのサービスのものかを確かめる
@@ -55,10 +55,16 @@ export async function addSource(input: z.input<typeof addSchema>): Promise<Actio
 
   // 自分の推しであることを、本人のセッション(行レベルセキュリティ)で確認する
   const supabase = await createClient();
-  const { data: oshi } = await supabase.from("oshi").select("id").eq("id", oshiId).maybeSingle();
+  const { data: oshi } = await supabase
+    .from("oshikatsu_records")
+    .select("id")
+    .eq("kind", "oshi")
+    .eq("id", oshiId)
+    .eq("deleted", false)
+    .maybeSingle();
   if (!oshi) return { ok: false, error: "推しが見つかりません" };
 
-  if (viewer.sourceCount >= viewer.maxSources) {
+  if (viewer.maxSources !== null && viewer.sourceCount >= viewer.maxSources) {
     return { ok: false, error: `登録できるアカウントは${viewer.maxSources}件までです。` };
   }
 
@@ -67,7 +73,7 @@ export async function addSource(input: z.input<typeof addSchema>): Promise<Actio
   // 外部ページの取得を伴うため、1時間あたり30回までに制限する
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const { count } = await admin
-    .from("rate_events")
+    .from("oshikatsu_rate_events")
     .select("id", { count: "exact", head: true })
     .eq("user_id", viewer.id)
     .eq("action", "source.add")
@@ -75,7 +81,7 @@ export async function addSource(input: z.input<typeof addSchema>): Promise<Actio
   if ((count ?? 0) >= 30) {
     return { ok: false, error: "登録の回数が上限に達しました。1時間ほどおいてからお試しください。" };
   }
-  await admin.from("rate_events").insert({ user_id: viewer.id, action: "source.add" });
+  await admin.from("oshikatsu_rate_events").insert({ user_id: viewer.id, action: "source.add" });
 
   let resolved: Resolved;
   let note: string | undefined;
@@ -131,7 +137,7 @@ export async function addSource(input: z.input<typeof addSchema>): Promise<Actio
   let newFeed: FeedRow | null = null;
   if (resolved.feed) {
     const { data: existing } = await admin
-      .from("feeds")
+      .from("oshikatsu_feeds")
       .select("id")
       .eq("platform", resolved.feed.platform)
       .eq("external_key", resolved.feed.externalKey)
@@ -140,7 +146,7 @@ export async function addSource(input: z.input<typeof addSchema>): Promise<Actio
       feedId = existing.id as string;
     } else {
       const { data: created, error } = await admin
-        .from("feeds")
+        .from("oshikatsu_feeds")
         .upsert(
           {
             platform: resolved.feed.platform,
@@ -158,7 +164,7 @@ export async function addSource(input: z.input<typeof addSchema>): Promise<Actio
     }
   }
 
-  const { error: insertError } = await admin.from("sources").insert({
+  const { error: insertError } = await admin.from("oshikatsu_sources").insert({
     user_id: viewer.id,
     oshi_id: oshiId,
     platform: resolved.platform,
@@ -170,6 +176,7 @@ export async function addSource(input: z.input<typeof addSchema>): Promise<Actio
   });
   if (insertError) {
     if (insertError.code === "23505") return { ok: false, error: "このアカウントは登録済みです" };
+    if (insertError.message.includes("INVALID_OSHI")) return { ok: false, error: "推しが見つかりません" };
     if (insertError.message.includes("SOURCE_LIMIT")) {
       return { ok: false, error: `登録できるアカウントは${viewer.maxSources}件までです。` };
     }
@@ -192,7 +199,7 @@ export async function deleteSource(id: string): Promise<ActionResult> {
   if (!z.string().uuid().safeParse(id).success) return { ok: false, error: "対象が正しくありません" };
 
   const supabase = await createClient();
-  const { error } = await supabase.from("sources").delete().eq("id", id);
+  const { error } = await supabase.from("oshikatsu_sources").delete().eq("id", id);
   if (error) return { ok: false, error: "削除できませんでした。時間をおいてもう一度お試しください。" };
   revalidatePath("/app", "layout");
   return { ok: true };

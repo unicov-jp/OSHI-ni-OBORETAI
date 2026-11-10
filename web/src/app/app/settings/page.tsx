@@ -7,7 +7,7 @@ import { requireViewer } from "@/lib/auth";
 import { DEMO } from "@/lib/env";
 import { driveConfigured } from "@/lib/google-drive";
 import { createClient } from "@/lib/supabase/server";
-import { PLAN_LABEL } from "@/lib/plans";
+import { getPlanLabels } from "@/lib/plan-names";
 
 export const metadata: Metadata = { title: "設定" };
 
@@ -33,6 +33,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const found = notice ? NOTICES[notice] : undefined;
   const banner = found && (!found.adminOnly || viewer.role === "admin") ? found : undefined;
   const stripe = stripeUrl();
+  const labels = await getPlanLabels();
   // Googleドライブに接続済みか(リフレッシュトークンが保存されているか。値そのものは読まない)
   let driveConnected = false;
   if (!DEMO) {
@@ -72,24 +73,23 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       </Section>
 
       <Section title="Subscription">
-        <div className="space-y-4">
+        {/* プラン名・Stripe・料金ページを1行に並べる */}
+        <div className="flex flex-wrap items-center gap-2">
           <Badge tone={viewer.plan === "master" ? "warn" : viewer.plan === "paid" ? "brand" : "neutral"}>
-            {PLAN_LABEL[viewer.plan]}
+            {labels[viewer.plan]}
           </Badge>
-          <div className="flex flex-wrap gap-2">
-            {stripe ? (
-              <a href={stripe} target="_blank" rel="noopener noreferrer" className={buttonClass("primary")}>
-                Stripe
-              </a>
-            ) : (
-              <span className={`${buttonClass("primary")} pointer-events-none opacity-50`} aria-disabled="true">
-                Stripe
-              </span>
-            )}
-            <Link href="/pricing" className={buttonClass("secondary")}>
-              料金ページ
-            </Link>
-          </div>
+          {stripe ? (
+            <a href={stripe} target="_blank" rel="noopener noreferrer" className={buttonClass("primary", "sm")}>
+              Stripe
+            </a>
+          ) : (
+            <span className={`${buttonClass("primary", "sm")} pointer-events-none opacity-50`} aria-disabled="true">
+              Stripe
+            </span>
+          )}
+          <Link href="/pricing" className={buttonClass("secondary", "sm")}>
+            料金ページ
+          </Link>
         </div>
       </Section>
 

@@ -674,3 +674,42 @@ end;
 $$;
 revoke all on function public.oshikatsu_admin_set_price(int) from public, anon;
 grant execute on function public.oshikatsu_admin_set_price(int) to authenticated;
+
+-- ============ プラン名(表示名) ============
+-- master / paid / free の表示名を管理画面の「料金」から変える。未設定なら画面側の既定(Developer・有料・無料)を使う
+create table if not exists public.oshikatsu_plan_names (
+  plan       text        primary key check (plan in ('master', 'paid', 'free')),
+  label      text        not null check (char_length(label) between 1 and 20),
+  updated_at timestamptz not null default now()
+);
+alter table public.oshikatsu_plan_names enable row level security;
+drop policy if exists "oshikatsu_plan_names_select" on public.oshikatsu_plan_names;
+create policy "oshikatsu_plan_names_select" on public.oshikatsu_plan_names for select to anon, authenticated using (true);
+revoke all on public.oshikatsu_plan_names from anon, authenticated;
+grant select on public.oshikatsu_plan_names to anon, authenticated;
+
+-- 運営者向け：プラン名をまとめて変える({"master":"Developer","paid":"有料","free":"無料"})。操作ログに残す
+create or replace function public.oshikatsu_admin_set_plan_names(names jsonb) returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  k text;
+begin
+  if not public.oshikatsu_is_admin() then
+    raise exception 'FORBIDDEN' using errcode = '42501';
+  end if;
+  if jsonb_typeof(names) <> 'object' then
+    raise exception 'INVALID_NAMES' using errcode = 'P0001';
+  end if;
+  for k in select jsonb_object_keys(names) loop
+    if k not in ('master', 'paid', 'free') then
+      raise exception 'INVALID_NAMES' using errcode = 'P0001';
+    end if;
+    insert into public.oshikatsu_plan_names (plan, label, updated_at) values (k, trim(names->>k), now())
+    on conflict (plan) do update set label = excluded.label, updated_at = now();
+  end loop;
+  insert into public.oshikatsu_audit_logs (admin_id, action, target, detail)
+  values ((select auth.uid()), 'plan.names', 'plans', names::text);
+end;
+$$;
+revoke all on function public.oshikatsu_admin_set_plan_names(jsonb) from public, anon;
+grant execute on function public.oshikatsu_admin_set_plan_names(jsonb) to authenticated;

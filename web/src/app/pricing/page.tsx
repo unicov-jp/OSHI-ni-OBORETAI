@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PriceSimulator } from "@/components/price-simulator";
 import { buttonClass } from "@/components/ui";
+import { getPlanLabels } from "@/lib/plan-names";
 import { FREE_OSHI, getPerOshiPrice, PAID_MAX_OSHI, yen } from "@/lib/pricing";
 
 export const metadata: Metadata = { title: "料金" };
@@ -27,13 +28,13 @@ function Check() {
 }
 
 export default async function PricingPage() {
-  const perOshi = await getPerOshiPrice();
+  const [perOshi, labels] = await Promise.all([getPerOshiPrice(), getPlanLabels()]);
 
   return (
     <main className="mx-auto max-w-[760px] space-y-6 px-4 py-8">
       <div>
-        <Link href="/app/settings" className="text-[13px] text-muted hover:text-text">
-          ← 設定に戻る
+        <Link href="/" className="text-[13px] text-muted hover:text-text">
+          ← TOP
         </Link>
         <h1 className="mt-1 text-2xl font-bold">料金</h1>
         <p className="mt-2 text-sm text-muted">
@@ -44,7 +45,7 @@ export default async function PricingPage() {
       {/* 無料 */}
       <section className="rounded-2xl border border-line bg-surface p-5">
         <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-lg font-bold">無料</h2>
+          <h2 className="text-lg font-bold">{labels.free}</h2>
           <span className="text-xs text-muted">まずはお試しに</span>
         </div>
         <p className="num mt-2 text-2xl font-bold">0円</p>
@@ -100,8 +101,8 @@ export default async function PricingPage() {
           特定商取引法に基づく表記
         </Link>
       </p>
-      <Link href="/app/settings" className={buttonClass("secondary")}>
-        設定に戻る
+      <Link href="/" className={buttonClass("secondary")}>
+        TOPに戻る
       </Link>
     </main>
   );

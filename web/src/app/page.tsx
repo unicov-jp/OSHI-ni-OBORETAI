@@ -62,6 +62,9 @@ export default function LandingPage() {
           <header className="flex h-14 shrink-0 items-center justify-between">
             <Wordmark />
             <div className="flex items-center gap-1">
+              <Link href="/pricing" className={buttonClass("ghost", "sm")}>
+                料金
+              </Link>
               <Link href={start} className={buttonClass("secondary", "sm")}>
                 ログイン
               </Link>
@@ -77,7 +80,12 @@ export default function LandingPage() {
               <Link href={start} className={buttonClass("primary", "md", "h-12 px-6 text-[15px]")}>
                 {startLabel}
               </Link>
-              <span className="text-[13px] text-muted">推し3人までは無料で使えます</span>
+              <span className="text-[13px] text-muted">
+                推し3人までは無料で使えます。
+                <Link href="/pricing" className="ml-1 underline hover:text-text">
+                  料金を見る
+                </Link>
+              </span>
             </div>
           </div>
         </section>
@@ -110,6 +118,7 @@ export default function LandingPage() {
         </section>
 
         <footer className="glass -mx-5 flex flex-wrap gap-x-5 gap-y-2 border-t border-line px-5 py-6 text-[13px] text-muted">
+          <Link href="/pricing" className="hover:text-text">料金</Link>
           <Link href="/legal/terms" className="hover:text-text">利用規約</Link>
           <Link href="/legal/privacy" className="hover:text-text">プライバシーポリシー</Link>
           <Link href="/legal/tokushoho" className="hover:text-text">特定商取引法に基づく表記</Link>

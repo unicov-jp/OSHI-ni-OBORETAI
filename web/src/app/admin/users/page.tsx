@@ -3,7 +3,8 @@ import Link from "next/link";
 import { UserActions } from "@/components/admin-actions";
 import { Badge, buttonClass, formatDateTime, inputClass } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
-import { billingLabel, PLAN_LABEL } from "@/lib/plans";
+import { getPlanLabels } from "@/lib/plan-names";
+import { billingLabel } from "@/lib/plans";
 import { getAdminUsers } from "@/lib/data";
 import type { AdminUser } from "@/lib/types";
 
@@ -40,7 +41,7 @@ export default async function AdminUsersPage({
   const params = await searchParams;
   const search = (params.q ?? "").trim().slice(0, 100);
   const page = Math.max(0, Number.parseInt(params.page ?? "0", 10) || 0);
-  const [viewer, users] = await Promise.all([requireAdmin(), getAdminUsers(search, page)]);
+  const [viewer, users, labels] = await Promise.all([requireAdmin(), getAdminUsers(search, page), getPlanLabels()]);
   const pageHref = (n: number) => `/admin/users?${new URLSearchParams({ q: search, page: String(n) })}`;
 
   return (
@@ -70,7 +71,7 @@ export default async function AdminUsersPage({
             <dl className="mt-3 grid grid-cols-[72px_minmax(0,1fr)] items-center gap-y-2 text-sm">
               <dt className="text-xs text-muted">プラン</dt>
               <dd>
-                <Badge tone={planTone(user.plan)}>{PLAN_LABEL[user.plan]}</Badge>
+                <Badge tone={planTone(user.plan)}>{labels[user.plan]}</Badge>
               </dd>
               <dt className="text-xs text-muted">決済</dt>
               <dd>
@@ -88,7 +89,7 @@ export default async function AdminUsersPage({
               <dd className="num text-[13px]">{formatDateTime(user.created_at)}</dd>
             </dl>
             <div className="mt-3 flex justify-end">
-              <UserActions user={user} selfId={viewer.id} />
+              <UserActions user={user} selfId={viewer.id} labels={labels} />
             </div>
           </li>
         ))}
@@ -123,7 +124,7 @@ export default async function AdminUsersPage({
                 <tr key={user.id}>
                   <td title={user.email}>{user.email}</td>
                   <td>
-                    <Badge tone={planTone(user.plan)}>{PLAN_LABEL[user.plan]}</Badge>
+                    <Badge tone={planTone(user.plan)}>{labels[user.plan]}</Badge>
                   </td>
                   <td>
                     <Billing user={user} />
@@ -136,7 +137,7 @@ export default async function AdminUsersPage({
                   </td>
                   <td className="num">{formatDateTime(user.created_at)}</td>
                   <td>
-                    <UserActions user={user} selfId={viewer.id} />
+                    <UserActions user={user} selfId={viewer.id} labels={labels} />
                   </td>
                 </tr>
               ))}

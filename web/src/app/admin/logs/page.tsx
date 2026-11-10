@@ -15,6 +15,7 @@ const ACTION_LABEL: Record<string, string> = {
   "user.plan": "プランを変更",
   "price.tiers": "料金を変更",
   "price.per_oshi": "料金(1人あたり)を変更",
+  "plan.names": "プラン名を変更",
 };
 
 export default async function AdminLogsPage({

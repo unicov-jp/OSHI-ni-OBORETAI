@@ -104,3 +104,27 @@ export async function setPerOshiPrice(perOshi: number): Promise<ActionResult> {
   revalidatePath("/admin", "layout");
   return { ok: true };
 }
+
+// プラン名(表示名)を変える
+export async function setPlanNames(names: { master: string; paid: string; free: string }): Promise<ActionResult> {
+  if (DEMO) return { ok: false, error: DEMO_ERROR };
+  await requireAdmin();
+  const clean = {
+    master: names.master.trim(),
+    paid: names.paid.trim(),
+    free: names.free.trim(),
+  };
+  if (Object.values(clean).some((v) => v.length < 1 || v.length > 20)) {
+    return { ok: false, error: "プラン名は1〜20文字で入力してください" };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("oshikatsu_admin_set_plan_names", { names: clean });
+  if (error) {
+    if (error.message.includes("oshikatsu_admin_set_plan_names")) {
+      return { ok: false, error: "プラン名の表がまだありません。新着用のSQLを実行してください" };
+    }
+    return failure(error.message);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
+}

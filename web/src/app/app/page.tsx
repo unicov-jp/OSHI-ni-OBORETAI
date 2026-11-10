@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SwipeFeed } from "@/components/swipe-feed";
 import { EmptyState, buttonClass } from "@/components/ui";
+import { requireViewer } from "@/lib/auth";
 import { getLibrary, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
 import { instagramPostCodes } from "@/lib/fetchers/instagram";
 import { tiktokVideos } from "@/lib/fetchers/tiktok";
@@ -14,7 +15,7 @@ type Search = Promise<{ tab?: string }>;
 // 新着: 推しを1人選び、その推しと所属グループの新着をまとめて上下のスワイプで見る(推し単位のみ)。
 export default async function FeedPage({ searchParams }: { searchParams: Search }) {
   const params = await searchParams;
-  const [library, unread] = await Promise.all([getLibrary(), getUnreadCounts()]);
+  const [viewer, library, unread] = await Promise.all([requireViewer(), getLibrary(), getUnreadCounts()]);
 
   if (library.oshi.length === 0) {
     return (
@@ -56,6 +57,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     <SwipeFeed
       // 推しが変わったら最初の1枚から見せる
       key={active.id}
+      isAdmin={viewer.role === "admin"}
       oshi={library.oshi}
       active={active}
       unread={unread}

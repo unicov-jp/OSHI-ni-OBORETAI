@@ -50,7 +50,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="mx-auto max-w-[760px] space-y-5">
-      <h1 className="text-xl leading-7 font-bold">設定</h1>
+      <div>
+        <Link href="/app" className="text-[13px] text-muted hover:text-text">
+          ← 新着に戻る
+        </Link>
+        <h1 className="text-xl leading-7 font-bold">設定</h1>
+      </div>
       {banner ? <Notice tone={banner.tone}>{banner.text}</Notice> : null}
 
       <Section title="推しの登録" description="推しの追加・編集と、新着を取るSNSの登録。今のアプリ(推し活手帳)と共通です。">

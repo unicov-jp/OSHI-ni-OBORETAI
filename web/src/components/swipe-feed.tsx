@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { EmbedCard, InstagramPost, XPostEmbed } from "@/components/embeds";
 import { OshiAvatar } from "@/components/oshi-avatar";
 import { formatRelative } from "@/components/ui";
@@ -16,6 +16,7 @@ import type { Oshi, Platform, Source, TimelineItem } from "@/lib/types";
 // 画面に出ている1件だけを読み込み・再生し(音なしで自動再生)、ほかは静止画にして軽くする。
 
 type Props = {
+  isAdmin: boolean;
   oshi: Oshi[];
   active: Oshi;
   unread: Record<string, number>;
@@ -34,6 +35,13 @@ const EMBED_PLATFORMS: Platform[] = ["x", "instagram", "tiktok"];
 // 新着(動画・記事)何件ごとに、X・Instagram・TikTok の画面を1枚はさむか
 const EMBED_EVERY = 3;
 
+// 右側のボタン(ミュート・設定・管理)が使う共通の状態
+const Controls = createContext<{ muted: boolean; toggleMute: () => void; isAdmin: boolean }>({
+  muted: false,
+  toggleMute: () => {},
+  isAdmin: false,
+});
+
 type Slide =
   | { kind: "item"; key: string; item: TimelineItem; from: string }
   | { kind: "embed"; key: string; source: Source; from: string }
@@ -43,7 +51,7 @@ type Slide =
 
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
-export function SwipeFeed({ oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize }: Props) {
+export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize }: Props) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [hasMore, setHasMore] = useState(initialItems.length >= pageSize);
@@ -195,9 +203,12 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, x, tiktok,
     }
   };
 
+  const controls = useMemo(() => ({ muted, toggleMute: () => setMuted((m) => !m), isAdmin }), [muted, isAdmin]);
+
   return (
+    <Controls.Provider value={controls}>
     <div
-      className="fixed inset-x-0 top-0 bottom-[calc(56px+env(safe-area-inset-bottom))] z-40 bg-black text-white md:top-14 md:bottom-0 md:z-20"
+      className="fixed inset-0 z-40 bg-black text-white md:top-14 md:z-20"
       onTouchStart={(event) => {
         const t = event.touches[0];
         touch.current = { x: t.clientX, y: t.clientY };
@@ -240,14 +251,28 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, x, tiktok,
           );
         })}
       </nav>
+      <div className="pointer-events-none absolute top-0 right-0 z-30 h-16 w-20 bg-gradient-to-l from-black via-black/80 to-transparent" />
       <button
         type="button"
         onClick={refresh}
         disabled={refreshing}
-        aria-label="更新"
-        className="absolute top-3 right-3 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-lg backdrop-blur"
+        aria-label="新着を取りに行く"
+        title="新着を取りに行く"
+        className="absolute top-3 right-3 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-white/25 bg-white/10 text-white shadow-[0_4px_16px_rgba(0,0,0,.4)] backdrop-blur-md transition active:scale-90 disabled:opacity-70"
       >
-        <span className={refreshing ? "animate-spin" : ""}>↻</span>
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden
+          className={`h-[18px] w-[18px] ${refreshing ? "animate-spin" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M20 11a8 8 0 1 0-2.34 5.66" />
+          <path d="M20 4v7h-7" />
+        </svg>
       </button>
       {note ? (
         <p className="absolute top-16 left-1/2 z-30 -translate-x-1/2 rounded-full bg-white px-4 py-1.5 text-[13px] font-bold whitespace-nowrap text-black">
@@ -308,6 +333,7 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, x, tiktok,
         </div>
       )}
     </div>
+    </Controls.Provider>
   );
 }
 
@@ -316,7 +342,31 @@ function fromLabel(from: string): string {
 }
 
 // 右側のボタン(推しのアイコン・開く・共有)
+function Icon({ d }: { d: string[] }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden className="h-[22px] w-[22px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      {d.map((path) => (
+        <path key={path} d={path} />
+      ))}
+    </svg>
+  );
+}
+
+const ICON = {
+  open: ["M14 4h6v6", "M20 4l-9 9", "M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"],
+  share: ["M12 3v12", "M7 8l5-5 5 5", "M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"],
+  sound: ["M4 9v6h4l5 4V5L8 9H4z", "M16.5 8.5a5 5 0 0 1 0 7", "M19 6a8.5 8.5 0 0 1 0 12"],
+  muted: ["M4 9v6h4l5 4V5L8 9H4z", "M17 9l5 5", "M22 9l-5 5"],
+  settings: [
+    "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+    "M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z",
+  ],
+  admin: ["M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z", "M9 12l2 2 4-4"],
+};
+
+// 右側のボタン(推しのアイコン・開く・共有・ミュート・設定・管理)
 function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: string }) {
+  const { muted, toggleMute, isAdmin } = useContext(Controls);
   const [copied, setCopied] = useState(false);
   const share = async () => {
     try {
@@ -330,18 +380,43 @@ function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: str
       // 共有をやめた場合は何もしない
     }
   };
-  const round = "flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-xl backdrop-blur";
+  const round = "flex h-11 w-11 items-center justify-center rounded-full bg-white/15 backdrop-blur";
+  const item = "flex flex-col items-center gap-1";
   return (
-    <div className="absolute right-3 bottom-28 z-10 flex flex-col items-center gap-5 text-[11px] font-bold [text-shadow:0_1px_3px_rgba(0,0,0,.6)]">
-      <OshiAvatar oshi={oshi} size={48} />
-      <a href={url} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1">
-        <span className={round}>↗</span>
+    <div className="absolute right-3 bottom-8 z-10 flex flex-col items-center gap-4 text-[10.5px] font-bold [text-shadow:0_1px_3px_rgba(0,0,0,.6)]">
+      <OshiAvatar oshi={oshi} size={46} />
+      <a href={url} target="_blank" rel="noopener noreferrer" className={item}>
+        <span className={round}>
+          <Icon d={ICON.open} />
+        </span>
         開く
       </a>
-      <button type="button" onClick={share} className="flex flex-col items-center gap-1">
-        <span className={round}>⤴</span>
+      <button type="button" onClick={share} className={item}>
+        <span className={round}>
+          <Icon d={ICON.share} />
+        </span>
         {copied ? "コピー済み" : "共有"}
       </button>
+      <button type="button" onClick={toggleMute} className={item} aria-pressed={muted}>
+        <span className={round}>
+          <Icon d={muted ? ICON.muted : ICON.sound} />
+        </span>
+        {muted ? "ミュート中" : "ミュート"}
+      </button>
+      <Link href="/app/settings" className={item}>
+        <span className={round}>
+          <Icon d={ICON.settings} />
+        </span>
+        設定
+      </Link>
+      {isAdmin ? (
+        <Link href="/admin" className={item}>
+          <span className={round}>
+            <Icon d={ICON.admin} />
+          </span>
+          管理
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -483,9 +558,9 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
         onClick={tap}
         className="absolute inset-0 z-[5] cursor-pointer"
       />
-      {live ? (
+      {live && !muted && !activated ? (
         <span className="pointer-events-none absolute top-20 left-4 z-10 rounded-full bg-black/55 px-3 py-1 text-xs font-bold backdrop-blur">
-          {muted ? "🔇 音なし(タップで音を出す)" : activated ? "🔊 音あり" : "🔇 タップで音を出す"}
+          🔇 タップで音を出す
         </span>
       ) : null}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
@@ -630,8 +705,26 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
   useEffect(() => {
     if (live) send(muted ? "mute" : "unMute");
   }, [muted, live, send]);
+
+  // ループはプレーヤーの機能に任せると読み直しで途切れるため、終わったらすぐ先頭に戻して再生する
+  useEffect(() => {
+    if (!live) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow) return;
+      const data = (typeof event.data === "string" ? safeJson(event.data) : event.data) as
+        | { "x-tiktok-player"?: boolean; type?: string; value?: number }
+        | null;
+      if (!data || !data["x-tiktok-player"]) return;
+      if (data.type === "onStateChange" && data.value === 0) {
+        frame.current?.contentWindow?.postMessage({ "x-tiktok-player": true, type: "seekTo", value: 0 }, "*");
+        frame.current?.contentWindow?.postMessage({ "x-tiktok-player": true, type: "play" }, "*");
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [live]);
   const src =
-    `https://www.tiktok.com/player/v1/${id}?autoplay=1&loop=1&music_info=0&description=0&rel=0` +
+    `https://www.tiktok.com/player/v1/${id}?autoplay=1&loop=0&music_info=0&description=0&rel=0` +
     `&controls=1&progress_bar=1&play_button=0&volume_control=0&fullscreen_button=0&timestamp=0` +
     `&native_context_menu=0&closed_caption=0`;
   return (
@@ -661,4 +754,12 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
       <Info platform="TikTok" oshi={oshi} from={from} time={at ? formatRelative(at) : ""} title={`TikTok @${handle}`} isNew={at ? at > oshi.last_seen_at : false} />
     </>
   );
+}
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }

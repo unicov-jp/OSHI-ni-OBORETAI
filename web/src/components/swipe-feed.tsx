@@ -75,15 +75,17 @@ function OshiTab({ oshi: o, view, on, count, busy, onRefresh, onSelect, tabRef }
   oshi: Oshi; view: FeedView; on: boolean; count: number; busy: boolean; onRefresh?: () => void; onSelect: () => void;
   tabRef?: React.Ref<HTMLAnchorElement>;
 }) {
-  const router = useRouter();
-  const press = useLongPress(() => router.push(`/app/manage?sns=${encodeURIComponent(o.id)}`));
+  // 長押し: その推しのメニュー(推し情報の更新・新規登録)。右下の推しのアイコンと同じもの
+  const [menu, setMenu] = useState(false);
+  const press = useLongPress(() => setMenu(true));
   return (
+    <>
     <Link
       href={tabHref(o.id, view)}
       replace
       ref={tabRef}
       aria-current={on ? "page" : undefined}
-      aria-label={`${o.name}(タップで新着を取りに行く・長押しでSNSを登録)`}
+      aria-label={`${o.name}(タップで新着を取りに行く・長押しでメニュー)`}
       title={o.name}
       className={`relative flex shrink-0 snap-start items-center justify-center rounded-full ${on ? "" : "opacity-55"}`}
       {...press}
@@ -110,6 +112,8 @@ function OshiTab({ oshi: o, view, on, count, busy, onRefresh, onSelect, tabRef }
         </span>
       ) : null}
     </Link>
+    {menu ? createPortal(<OshiMenu oshi={o} onClose={() => setMenu(false)} />, document.body) : null}
+    </>
   );
 }
 
@@ -686,12 +690,11 @@ function Sheet({ title, items, onClose }: { title: string; items: SheetItem[]; o
   );
 }
 
-// 推しのメニュー(右下の推しのアイコンの長押し)。今のアプリ(推し活手帳)の機能は、ここに順に集めていく
+// 推しのメニュー(上の並びの推しのアイコン・右下の推しのアイコンの長押し)
 function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
-  const items: { href: string; label: string; note: string }[] = [
-    { href: "/app/manage?new=1", label: "推しを登録", note: "新しい推しを登録する" },
-    { href: `/app/manage?sns=${encodeURIComponent(oshi.id)}`, label: "SNSを追加", note: `${oshi.name}の個人SNS・グループSNS` },
-    { href: `/app/manage?edit=${encodeURIComponent(oshi.id)}`, label: "推しを編集", note: "アイコンの写真・名前・メンバーカラー・誕生日" },
+  const items: { href: string; label: string }[] = [
+    { href: `/app/manage?edit=${encodeURIComponent(oshi.id)}`, label: "推し情報の更新" },
+    { href: "/app/manage?new=1", label: "推し情報の新規登録" },
   ];
   return (
     <div className="fixed inset-0 z-[60] flex items-end bg-black/60 text-white" onClick={onClose} role="presentation">
@@ -709,14 +712,12 @@ function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
         <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
           {items.map((item) => (
             <li key={item.href}>
-              <Link href={item.href} className="flex min-h-[60px] flex-col justify-center px-4 py-2 active:bg-white/10">
-                <span className="text-[15px] font-semibold">{item.label}</span>
-                <span className="truncate text-xs text-white/55">{item.note}</span>
+              <Link href={item.href} className="flex min-h-[56px] items-center px-4 py-2 text-[15px] font-semibold active:bg-white/10">
+                {item.label}
               </Link>
             </li>
           ))}
         </ul>
-        <p className="mt-3 px-1 text-xs text-white/45">カレンダー(LIVE・チェキ)は右へ、ギャラリーは左へスワイプで開けます。</p>
         <button type="button" onClick={onClose} className="mt-3 h-12 w-full rounded-2xl bg-white/10 text-[15px] font-semibold">
           閉じる
         </button>
@@ -733,9 +734,8 @@ function SideActions({ oshi, url, title, platform, reactions }: {
   const { muted, toggleMute, isAdmin, activated } = useContext(Controls);
   const router = useRouter();
   const [menu, setMenu] = useState(false);
-  // 右下の推しのアイコンを長押し: その推しのメニュー(SNSの登録・推しの編集など)
+  // 右下の推しのアイコンを長押し: その推しのメニュー(推し情報の更新・新規登録)
   const avatarPress = useLongPress(() => setMenu(true));
-  // 設定(管理)ボタンを長押し: 推しを新しく登録
   // 設定(管理)ボタンを長押し: 通常 ⇔ Sensitive の推しを切り替える(Sensitive プランだけ)
   const { mode, canSensitive } = useContext(Controls);
   const [modeNote, setModeNote] = useState<string | null>(null);

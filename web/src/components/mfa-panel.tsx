@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { SettingSwitch } from "@/components/setting-switch";
 import { Button, Field, inputClass, Notice } from "@/components/ui";
 import { DEMO } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
@@ -88,34 +89,20 @@ export function MfaPanel({ enabled, isAdmin }: { enabled: boolean; isAdmin: bool
   return (
     <div className="space-y-4">
       {/* ON/OFF のスイッチ。ON にすると認証アプリの登録、OFF にすると解除の確認に進む */}
-      <div className="flex items-center gap-4">
-        <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-semibold">二段階認証</p>
-          <p className="text-[13px] text-muted">
-            {enabled
-              ? "ログインのたびに、認証アプリの6桁コードを確認します。"
-              : "ONにすると、Googleログインのあとに認証アプリの6桁コードを確認します。"}
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled || Boolean(enrollment)}
-          aria-label="二段階認証"
-          disabled={busy}
-          onClick={() => {
-            if (enabled) setConfirmOff(true);
-            else if (enrollment) setEnrollment(null);
-            else void start();
-          }}
-          className={`relative h-8 w-14 shrink-0 rounded-full transition ${enabled || enrollment ? "bg-brand" : "bg-line"}`}
-        >
-          <span
-            className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${enabled || enrollment ? "left-7" : "left-1"}`}
-          />
-        </button>
-        <span className="w-8 text-[13px] font-semibold">{enabled ? "ON" : "OFF"}</span>
-      </div>
+      <SettingSwitch
+        title="二段階認証"
+        status={enabled ? "ON" : "OFF"}
+        on={enabled || Boolean(enrollment)}
+        description={
+          enabled ? "ログインのたびに、認証アプリの6桁コードを確認します。" : "ONにすると、Googleログインのあとに認証アプリの6桁コードを確認します。"
+        }
+        disabled={busy}
+        onToggle={() => {
+          if (enabled) setConfirmOff(true);
+          else if (enrollment) setEnrollment(null);
+          else void start();
+        }}
+      />
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 

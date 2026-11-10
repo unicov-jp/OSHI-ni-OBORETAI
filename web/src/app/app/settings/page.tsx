@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { DrivePanel } from "@/components/drive-panel";
 import { MfaPanel } from "@/components/mfa-panel";
-import { Badge, buttonClass, Notice, Section } from "@/components/ui";
+import { Notice, Section } from "@/components/ui";
 import { requireViewer } from "@/lib/auth";
 import { DEMO } from "@/lib/env";
 import { driveConfigured } from "@/lib/google-drive";
@@ -73,21 +73,25 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       </Section>
 
       <Section title="Subscription">
-        {/* プラン名・Stripe・料金ページを1行に並べる */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={viewer.plan === "master" ? "warn" : viewer.plan === "paid" ? "brand" : "neutral"}>
-            {labels[viewer.plan]}
-          </Badge>
+        {/* プラン名・Stripe・料金ページを同じ大きさで横に3等分して並べる */}
+        <div className="grid grid-cols-3 gap-2">
+          <span
+            className={`flex h-10 w-full items-center justify-center rounded-lg px-2 text-[13px] font-bold ${
+              viewer.plan === "master" ? "bg-warn/15 text-warn" : viewer.plan === "paid" ? "bg-brand/15 text-brand" : "bg-sunken text-muted"
+            }`}
+          >
+            <span className="truncate">{labels[viewer.plan]}</span>
+          </span>
           {stripe ? (
-            <a href={stripe} target="_blank" rel="noopener noreferrer" className={buttonClass("primary", "sm")}>
+            <a href={stripe} target="_blank" rel="noopener noreferrer" className="flex h-10 w-full items-center justify-center rounded-lg px-2 text-[13px] font-bold bg-brand text-brand-ink hover:opacity-90">
               Stripe
             </a>
           ) : (
-            <span className={`${buttonClass("primary", "sm")} pointer-events-none opacity-50`} aria-disabled="true">
+            <span className="flex h-10 w-full items-center justify-center rounded-lg px-2 text-[13px] font-bold bg-brand text-brand-ink opacity-50" aria-disabled="true">
               Stripe
             </span>
           )}
-          <Link href="/pricing" className={buttonClass("secondary", "sm")}>
+          <Link href="/pricing" className="flex h-10 w-full items-center justify-center rounded-lg px-2 text-[13px] font-bold border border-line hover:bg-sunken">
             料金ページ
           </Link>
         </div>

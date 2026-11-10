@@ -825,5 +825,62 @@ create policy oshikatsu_manual_posts_all on public.oshikatsu_manual_posts for al
   using (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()))
   with check (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()));
 
+-- 既読にした新着(YouTube・Blog)。新着の画面でその投稿を表示したら1件ずつ記録する。新着が整理で消えると一緒に消える
+create table if not exists public.oshikatsu_item_reads (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  item_id uuid not null references public.oshikatsu_feed_items (id) on delete cascade,
+  read_at timestamptz not null default now(),
+  primary key (user_id, item_id)
+);
+create index if not exists oshikatsu_item_reads_item_idx on public.oshikatsu_item_reads (item_id);
+alter table public.oshikatsu_item_reads enable row level security;
+revoke all on public.oshikatsu_item_reads from anon, authenticated;
+grant select, insert on public.oshikatsu_item_reads to authenticated;
+drop policy if exists oshikatsu_item_reads_select on public.oshikatsu_item_reads;
+create policy oshikatsu_item_reads_select on public.oshikatsu_item_reads for select to authenticated
+  using (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()));
+drop policy if exists oshikatsu_item_reads_insert on public.oshikatsu_item_reads;
+create policy oshikatsu_item_reads_insert on public.oshikatsu_item_reads for insert to authenticated
+  with check (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()));
+
+-- 上部の推しのアイコンの数字 = まだ表示していない新着(YouTube・Blog)の件数。
+-- 対象は、SNSを登録した後に出た投稿のうち直近30日のもの(登録前の過去の投稿は数えない)
+create or replace function public.oshikatsu_unread_counts()
+returns table (oshi_id text, unread int)
+language sql stable security invoker set search_path = '' as $$
+  select s.oshi_id, count(distinct i.id)::int
+  from public.oshikatsu_sources s
+  join public.oshikatsu_feed_items i on i.feed_id = s.feed_id
+  left join public.oshikatsu_item_reads r on r.user_id = s.user_id and r.item_id = i.id
+  where s.user_id = (select auth.uid())
+    and r.item_id is null
+    and i.published_at > greatest(s.created_at, now() - interval '30 days')
+  group by s.oshi_id;
+$$;
+revoke all on function public.oshikatsu_unread_counts() from public, anon;
+grant execute on function public.oshikatsu_unread_counts() to authenticated;
+
+-- X・Instagram・TikTok の投稿の既読(これらは新着として保存せず、開くたびに取りに行くので、投稿の番号だけを利用者ごとに覚える)。
+-- post_key は x:<番号> / ig:<コード> / tt:<番号>。baseline は SNS を登録した時点ですでにあった投稿(未読に数えない)
+create table if not exists public.oshikatsu_post_states (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  source_id uuid not null references public.oshikatsu_sources (id) on delete cascade,
+  post_key text not null check (char_length(post_key) between 3 and 80),
+  posted_at timestamptz,
+  first_seen_at timestamptz not null default now(),
+  baseline boolean not null default false,
+  read_at timestamptz,
+  primary key (user_id, source_id, post_key)
+);
+create index if not exists oshikatsu_post_states_key_idx on public.oshikatsu_post_states (user_id, post_key);
+alter table public.oshikatsu_post_states enable row level security;
+revoke all on public.oshikatsu_post_states from anon, authenticated;
+grant select, insert, delete on public.oshikatsu_post_states to authenticated;
+grant update (read_at) on public.oshikatsu_post_states to authenticated;
+drop policy if exists oshikatsu_post_states_all on public.oshikatsu_post_states;
+create policy oshikatsu_post_states_all on public.oshikatsu_post_states for all to authenticated
+  using (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()))
+  with check (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()));
+
 -- 追加した表・関数をすぐ使えるように、Supabase のAPIの一覧を読み直させる
 notify pgrst, 'reload schema';

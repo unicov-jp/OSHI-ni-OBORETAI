@@ -53,7 +53,11 @@ export async function getTimeline(options: {
       .filter((item) => options.oshiIds.includes(item.oshi_id))
       .filter((item) => !options.platform || item.platform === options.platform)
       .filter((item) => !options.before || item.published_at < options.before)
-      .slice(0, PAGE_SIZE);
+      .slice(0, PAGE_SIZE)
+      .map((item) => {
+        const oshi = demoOshi.find((o) => o.id === item.oshi_id);
+        return { ...item, read: !(oshi && item.published_at > oshi.last_seen_at) };
+      });
   }
 
   const supabase = await createClient();
@@ -68,7 +72,17 @@ export async function getTimeline(options: {
 
   const { data, error } = await query;
   if (error) throw new Error(`新着を読み込めませんでした: ${error.message}`);
-  return (data ?? []) as TimelineItem[];
+  const items = (data ?? []) as TimelineItem[];
+  // もう表示した投稿かどうかを付ける(未読の数と「NEW」の表示に使う)
+  if (items.length > 0) {
+    const { data: reads } = await supabase
+      .from("oshikatsu_item_reads")
+      .select("item_id")
+      .in("item_id", items.map((item) => item.item_id));
+    const read = new Set(((reads ?? []) as { item_id: string }[]).map((r) => r.item_id));
+    for (const item of items) item.read = read.has(item.item_id);
+  }
+  return items;
 }
 
 // 推しごとの、いちばん新しい新着(YouTube・Blog)の日時。上部の推しのアイコンを新着が届いた順に並べるのに使う

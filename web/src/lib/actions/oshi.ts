@@ -170,3 +170,32 @@ export async function removeOshiPhoto(id: string): Promise<ActionResult> {
   revalidatePath("/app", "layout");
   return { ok: true };
 }
+
+// 新着の画面で表示した投稿(YouTube・Blog)を既読にする。上部の推しのアイコンの数字(未読の件数)が減る
+export async function markItemsRead(itemIds: string[]): Promise<ActionResult> {
+  if (DEMO) return { ok: true };
+  const viewer = await requireViewer();
+  const ids = z.array(z.string().uuid()).max(100).safeParse(itemIds);
+  if (!ids.success || ids.data.length === 0) return { ok: true };
+  const supabase = await createClient();
+  await supabase
+    .from("oshikatsu_item_reads")
+    .upsert(ids.data.map((id) => ({ user_id: viewer.id, item_id: id })), { onConflict: "user_id,item_id", ignoreDuplicates: true });
+  return { ok: true };
+}
+
+// X・Instagram・TikTok の投稿を表示したら既読にする(post_key は x:<番号> / ig:<コード> / tt:<番号>)
+export async function markPostsRead(keys: string[]): Promise<ActionResult> {
+  if (DEMO) return { ok: true };
+  const viewer = await requireViewer();
+  const parsed = z.array(z.string().regex(/^(x|ig|tt):[A-Za-z0-9_-]{1,64}$/)).max(100).safeParse(keys);
+  if (!parsed.success || parsed.data.length === 0) return { ok: true };
+  const supabase = await createClient();
+  await supabase
+    .from("oshikatsu_post_states")
+    .update({ read_at: new Date().toISOString() })
+    .eq("user_id", viewer.id)
+    .in("post_key", parsed.data)
+    .is("read_at", null);
+  return { ok: true };
+}

@@ -110,6 +110,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     url: post.url,
     thumbnail_url: post.thumbnail_url,
     published_at: post.created_at,
+    read: true,
   }));
   // 保存した投稿(Developer だけ。反応ボタンの短押しで保存・解除する)
   const savedUrls = viewer.plan === "master" ? (await getSavedPosts()).map((p) => p.url) : [];

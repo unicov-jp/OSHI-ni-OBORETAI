@@ -10,7 +10,7 @@ import { EmbedCard, InstagramPost, XPostEmbed } from "@/components/embeds";
 import { CalendarBody, GalleryBody } from "@/components/memories";
 import { OshiAvatar } from "@/components/oshi-avatar";
 import { formatRelative } from "@/components/ui";
-import { loadMore, markSeen } from "@/lib/actions/oshi";
+import { loadMore, markItemsRead, markPostsRead, markSeen } from "@/lib/actions/oshi";
 import { toggleFeedMode } from "@/lib/actions/mode";
 import { importAllSns } from "@/lib/actions/sources";
 import { bgmEmbedUrl, isYoutubeShort, parseBgm, PLATFORM_LABEL, youtubeVideoId, type Bgm } from "@/lib/platforms";
@@ -73,6 +73,9 @@ const VERTICAL_FRAME = {
   height: "min(100%, calc(100vw * 16 / 9))",
   maxWidth: "100%",
 } as const;
+// X・Instagram・TikTok の未読(推しごとの投稿の番号)。推しを切り替えても数分は同じ結果を使う
+let socialCache: { keys: Record<string, string[]>; at: number } | null = null;
+
 // 新着(動画・記事)何件ごとに、X・Instagram・TikTok の画面を1枚はさむか
 const EMBED_EVERY = 3;
 
@@ -399,13 +402,96 @@ export function SwipeFeed({
     });
   }, [current, slides.length, hasMore, pending, items, active.id, pageSize]);
 
-  // しばらく見たら既読にする
-  const unreadCount = unread[active.id] ?? 0;
+  // しばらく見たら、この推しを開いた時刻を記録する(X・TikTok の「NEW」の基準)
   useEffect(() => {
-    if (unreadCount === 0) return;
     const timer = setTimeout(() => void markSeen([active.id]), 1500);
     return () => clearTimeout(timer);
-  }, [active.id, unreadCount]);
+  }, [active.id]);
+
+  // 未読の件数(上部の推しのアイコンの数字)。新着(YouTube・Blog)を1件表示するごとに既読にして1つ減らす。
+  // サーバーから新しい数が届いたら、この画面で減らした分はそこに含まれているので数え直す
+  const [prevUnread, setPrevUnread] = useState(unread);
+  const [localRead, setLocalRead] = useState<Record<string, number>>({});
+  if (prevUnread !== unread) {
+    setPrevUnread(unread);
+    setLocalRead({});
+  }
+  // X・Instagram・TikTok の未読(投稿の番号)。開いたときに裏で全推し分を読む(数分は前の結果を使う)
+  const [social, setSocial] = useState<Record<string, string[]>>(() => socialCache?.keys ?? {});
+  useEffect(() => {
+    if (socialCache && Date.now() - socialCache.at < 3 * 60 * 1000) return;
+    let alive = true;
+    void fetch("/api/unread-social", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<{ keys?: Record<string, string[]> }>) : null))
+      .then((data) => {
+        if (!data?.keys) return;
+        socialCache = { keys: data.keys, at: Date.now() };
+        if (alive) setSocial(data.keys);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const unreadOf = (id: string) => Math.max(0, (unread[id] ?? 0) - (localRead[id] ?? 0)) + (social[id]?.length ?? 0);
+  const postQueue = useRef<string[]>([]);
+  const postTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushPosts = useCallback(() => {
+    if (postTimer.current) clearTimeout(postTimer.current);
+    postTimer.current = null;
+    const keys = postQueue.current.splice(0, 100);
+    if (keys.length > 0) void markPostsRead(keys);
+  }, []);
+  const sentReads = useRef(new Set<string>());
+  const readQueue = useRef<string[]>([]);
+  const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushReads = useCallback(() => {
+    if (readTimer.current) clearTimeout(readTimer.current);
+    readTimer.current = null;
+    const ids = readQueue.current.splice(0, 100);
+    if (ids.length > 0) void markItemsRead(ids);
+  }, []);
+  const markShown = useCallback(
+    (slide: Slide | undefined) => {
+      // X・Instagram・TikTok: 未読の一覧にある投稿なら既読にする
+      const postKey =
+        slide?.kind === "tweet" ? `x:${slide.id}` : slide?.kind === "insta" ? `ig:${slide.code}` : slide?.kind === "tiktok" ? `tt:${slide.id}` : null;
+      if (postKey) {
+        if (!Object.values(social).some((list) => list.includes(postKey))) return;
+        const next: Record<string, string[]> = {};
+        for (const [oshiId, list] of Object.entries(social)) next[oshiId] = list.filter((k) => k !== postKey);
+        setSocial(next);
+        if (socialCache) socialCache = { ...socialCache, keys: next };
+        postQueue.current.push(postKey);
+        if (postTimer.current) clearTimeout(postTimer.current);
+        postTimer.current = setTimeout(flushPosts, 800);
+        return;
+      }
+      if (!slide || slide.kind !== "item" || slide.item.read !== false) return;
+      const id = slide.item.item_id;
+      if (sentReads.current.has(id)) return;
+      sentReads.current.add(id);
+      readQueue.current.push(id);
+      setLocalRead((prev) => ({ ...prev, [active.id]: (prev[active.id] ?? 0) + 1 }));
+      if (readTimer.current) clearTimeout(readTimer.current);
+      readTimer.current = setTimeout(flushReads, 800);
+    },
+    [active.id, flushReads, flushPosts, social],
+  );
+  useEffect(
+    () => () => {
+      flushReads();
+      flushPosts();
+    },
+    [flushReads, flushPosts],
+  );
+  // 新着の画面で表示している1枚を、少し(0.6秒)見たら既読にする(素早く送り飛ばした投稿は未読のまま)
+  useEffect(() => {
+    if (view !== "feed") return;
+    const slide = slides[current];
+    const timer = setTimeout(() => markShown(slide), 600);
+    return () => clearTimeout(timer);
+  }, [current, view, slides, markShown]);
 
   // 左右のスワイプで画面を切り替える(カレンダー ← 新着 → ギャラリー)。推しの切り替えは上のアイコンで行う。
   // 3つの画面の中身は読み込み済みなので、サーバーを待たずにその場で切り替え、URLだけ書き換える
@@ -548,7 +634,7 @@ export function SwipeFeed({
       >
         {strip.map((o, i) => {
           const on = i === leftIndex;
-          const count = unread[o.id] ?? 0;
+          const count = unreadOf(o.id);
           return (
             <OshiTab
               key={`${o.id}-${i}`}
@@ -745,14 +831,140 @@ function Sheet({ title, items, onClose }: { title: string; items: SheetItem[]; o
   );
 }
 
-// BGM のプレーヤー(左下)。YouTube の決まりで、再生中はプレーヤーを 200×200 以上で見えるように置く。
-// たたむとプレーヤーを外して止め、「♪ BGM」の小さなボタンだけ残す。押すと開いて再生する
+// BGM のプレーヤー(最初は左下)。YouTube の決まりで、再生中はプレーヤーを 200×200 以上で見えるように置く。
+// たたむとプレーヤーを外して止め、「♪ BGM」の小さなボタンだけ残す。押すと開いて再生する。
+// 上の帯(♪ BGM の行)か、たたんだボタンを長押しすると、そのまま指で好きな位置へ動かせる(位置は端末に覚える)
+const BGM_POS_KEY = "oshi-bgm-pos";
+function readBgmPos(): { x: number; y: number } | null {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(BGM_POS_KEY) ?? "null") as { x?: unknown; y?: unknown } | null;
+    return value && typeof value.x === "number" && typeof value.y === "number" ? { x: value.x, y: value.y } : null;
+  } catch {
+    return null;
+  }
+}
+
 function BgmPlayer({ bgm, open, onToggle }: { bgm: Bgm; open: boolean; onToggle: () => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  // 画面の左上からの位置(割合)。null のあいだは左下
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => (typeof window === "undefined" ? null : readBgmPos()));
+  const [dragging, setDragging] = useState(false);
+  const drag = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const justDragged = useRef(false);
+
+  // 画面からはみ出さない位置に収める
+  const place = (left: number, top: number) => {
+    const el = box.current;
+    const parent = el?.offsetParent as HTMLElement | null;
+    if (!el || !parent) return null;
+    const maxX = Math.max(0, parent.clientWidth - el.offsetWidth);
+    const maxY = Math.max(0, parent.clientHeight - el.offsetHeight);
+    const x = Math.min(Math.max(0, left), maxX);
+    const y = Math.min(Math.max(0, top), maxY);
+    return { x: maxX ? x / maxX : 0, y: maxY ? y / maxY : 1 };
+  };
+
+  const handle = {
+    onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
+      const el = box.current;
+      if (!el) return;
+      const target = event.currentTarget;
+      const pointerId = event.pointerId;
+      start.current = { x: event.clientX, y: event.clientY };
+      const rect = el.getBoundingClientRect();
+      const dx = event.clientX - rect.left;
+      const dy = event.clientY - rect.top;
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => {
+        drag.current = { dx, dy, moved: false };
+        setDragging(true);
+        buzz([40]);
+        try {
+          target.setPointerCapture(pointerId);
+        } catch {
+          // 指を離した後などは捕まえられないことがある
+        }
+      }, 450);
+    },
+    onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
+      const d = drag.current;
+      if (!d) {
+        // 長押しになる前に指が動いたら、移動ではなく通常の操作とみなす
+        const s0 = start.current;
+        if (s0 && Math.hypot(event.clientX - s0.x, event.clientY - s0.y) > 10 && timer.current) {
+          clearTimeout(timer.current);
+          timer.current = null;
+        }
+        return;
+      }
+      event.preventDefault();
+      const parent = box.current?.offsetParent as HTMLElement | null;
+      if (!parent) return;
+      const origin = parent.getBoundingClientRect();
+      const next = place(event.clientX - origin.left - d.dx, event.clientY - origin.top - d.dy);
+      if (next) {
+        d.moved = true;
+        setPos(next);
+      }
+    },
+    onPointerUp: () => {
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      if (drag.current) {
+        justDragged.current = true;
+        drag.current = null;
+        setDragging(false);
+        setPos((current) => {
+          try {
+            if (current) window.localStorage.setItem(BGM_POS_KEY, JSON.stringify(current));
+          } catch {
+            // 覚えられない環境でも、この画面の間はその位置に置く
+          }
+          return current;
+        });
+      }
+    },
+    onPointerCancel: () => {
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      drag.current = null;
+      setDragging(false);
+    },
+    onContextMenu: (event: React.MouseEvent) => event.preventDefault(),
+    // 動かした直後のクリック(たたむ・開く)は無視する
+    onClickCapture: (event: React.MouseEvent) => {
+      if (justDragged.current) {
+        event.preventDefault();
+        event.stopPropagation();
+        justDragged.current = false;
+      }
+    },
+  };
+
+  const style: React.CSSProperties = pos
+    ? {
+        left: `calc((100% - var(--bgm-w)) * ${pos.x})`,
+        top: `calc((100% - var(--bgm-hh)) * ${pos.y})`,
+      }
+    : { left: "0.75rem", bottom: "calc(1rem + env(safe-area-inset-bottom))" };
+
   return (
-    <div className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] left-3 z-20 text-white">
+    <div
+      ref={box}
+      className={`absolute z-20 touch-none text-white ${dragging ? "scale-105" : ""} transition-transform`}
+      style={{
+        ...style,
+        ["--bgm-w" as string]: open ? "200px" : "104px",
+        ["--bgm-hh" as string]: open ? "236px" : "40px",
+        WebkitTouchCallout: "none",
+        userSelect: "none",
+      }}
+    >
       {open ? (
-        <div className="w-[200px] overflow-hidden rounded-2xl bg-black/80 shadow-2xl ring-1 ring-white/15 backdrop-blur">
-          <div className="flex h-9 items-center justify-between pr-1 pl-3 text-[12px] font-bold">
+        <div className={`w-[200px] overflow-hidden rounded-2xl bg-black/80 shadow-2xl ring-1 backdrop-blur ${dragging ? "ring-white/60" : "ring-white/15"}`}>
+          <div {...handle} className="flex h-9 cursor-grab items-center justify-between pr-1 pl-3 text-[12px] font-bold">
             <span>♪ BGM</span>
             <button type="button" onClick={onToggle} className="h-8 rounded-full px-3 text-white/80 active:bg-white/10" aria-label="BGM をたたんで止める">
               たたむ
@@ -763,7 +975,7 @@ function BgmPlayer({ bgm, open, onToggle }: { bgm: Bgm; open: boolean; onToggle:
             title="BGM"
             width={200}
             height={200}
-            className="block h-[200px] w-[200px] bg-black"
+            className={`block h-[200px] w-[200px] bg-black ${dragging ? "pointer-events-none" : ""}`}
             allow="autoplay; encrypted-media; picture-in-picture"
             referrerPolicy="strict-origin-when-cross-origin"
           />
@@ -771,9 +983,10 @@ function BgmPlayer({ bgm, open, onToggle }: { bgm: Bgm; open: boolean; onToggle:
       ) : (
         <button
           type="button"
+          {...handle}
           onClick={onToggle}
-          className="flex h-10 items-center gap-1 rounded-full bg-black/70 px-4 text-[13px] font-bold shadow-xl ring-1 ring-white/15 backdrop-blur"
-          aria-label="BGM を開いて再生する"
+          className={`flex h-10 w-[104px] items-center justify-center gap-1 rounded-full bg-black/70 text-[13px] font-bold shadow-xl ring-1 backdrop-blur ${dragging ? "ring-white/60" : "ring-white/15"}`}
+          aria-label="BGM を開いて再生する(長押しで移動)"
         >
           ♪ BGM
         </button>
@@ -1121,7 +1334,8 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   item: TimelineItem; from: string; oshi: Oshi; live: boolean; near: boolean; muted: boolean; onToggleSound: () => boolean;
 }) {
   const title = decodeEntities(item.title);
-  const isNew = item.published_at > oshi.last_seen_at;
+  // まだ表示していない投稿に「NEW」を付ける(既読かどうか分からないときは、推しを開いた時刻で決める)
+  const isNew = item.read === undefined ? item.published_at > oshi.last_seen_at : !item.read;
   const time = formatRelative(item.published_at);
   const videoId = item.platform === "youtube" ? youtubeVideoId(item.url) : null;
   const short = isYoutubeShort(item.url);

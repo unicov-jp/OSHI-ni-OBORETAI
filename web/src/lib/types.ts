@@ -53,6 +53,8 @@ export type TimelineItem = {
   url: string;
   thumbnail_url: string | null;
   published_at: string;
+  // もう表示した投稿か(未読の数え方に使う)。分からないときは undefined
+  read?: boolean;
 };
 
 export type Viewer = {

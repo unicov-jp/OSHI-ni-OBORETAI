@@ -5,11 +5,13 @@ import type { Oshi } from "@/lib/types";
 
 // 推しのアイコン。今のアプリで設定した写真があれば写真、無ければ名前の1文字をメンバーカラーで出す。
 // 枠はメンバーカラー。大きさは固定(文字数で変わらない)。
-export function OshiAvatar({ oshi, size = 32, className = "" }: { oshi?: Oshi; size?: number; className?: string }) {
+// size は数(px)か、CSS の長さ(例: "var(--avatar)")。CSS の長さのときは画面の幅に合わせて大きさが変わる
+export function OshiAvatar({ oshi, size = 32, className = "" }: { oshi?: Oshi; size?: number | string; className?: string }) {
   const [broken, setBroken] = useState(false);
   const color = oshi?.color ?? "var(--line)";
   const initial = (oshi?.name ?? "").trim().slice(0, 1);
-  const ring = Math.max(2, Math.round(size / 16));
+  const ring = typeof size === "number" ? Math.max(2, Math.round(size / 16)) : 3;
+  const fontSize = typeof size === "number" ? Math.round(size * 0.42) : `calc(${size} * 0.42)`;
   return (
     <span
       aria-hidden
@@ -17,7 +19,7 @@ export function OshiAvatar({ oshi, size = 32, className = "" }: { oshi?: Oshi; s
       style={{
         width: size,
         height: size,
-        fontSize: Math.round(size * 0.42),
+        fontSize,
         background: color,
         boxShadow: `0 0 0 ${ring}px ${color}`,
       }}

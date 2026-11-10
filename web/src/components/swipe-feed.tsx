@@ -250,6 +250,13 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
     <Controls.Provider value={controls}>
     <div
       className="fixed inset-0 z-40 bg-black text-white md:top-14 md:z-20"
+      // 上部は「推しのアイコン4つ＋更新ボタン」の5つが画面の幅に並ぶ大きさにする
+      style={{
+        ["--slot" as string]: "min(80px, calc((100vw - 8px) / 5))",
+        ["--avatar" as string]: "calc(var(--slot) - 12px)",
+        // 上部の高さ(この下から写真・投稿を出す)
+        ["--bar" as string]: "calc(var(--slot) + 8px + env(safe-area-inset-top))",
+      }}
       onPointerDown={() => {
         if (!activated) setActivated(true);
       }}
@@ -268,8 +275,12 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
       }}
     >
       {/* 上: 推しのタブ(推し単位のみ)と更新 */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[calc(7rem+env(safe-area-inset-top))] bg-gradient-to-b from-black/70 to-transparent" />
-      <nav aria-label="推し" className="scroll-x absolute inset-x-0 top-[env(safe-area-inset-top)] z-30 flex h-16 items-center gap-1 pr-16 pl-2">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[calc(var(--bar)+2rem)] bg-gradient-to-b from-black/70 to-transparent" />
+      <nav
+        aria-label="推し"
+        className="absolute top-[env(safe-area-inset-top)] left-0 z-30 flex h-[calc(var(--slot)+8px)] snap-x snap-mandatory items-center overflow-x-auto [scrollbar-width:none]"
+        style={{ width: "calc(var(--slot) * 4)" }}
+      >
         {oshi.map((o) => {
           const on = o.id === active.id;
           const count = unread[o.id] ?? 0;
@@ -282,9 +293,10 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
               aria-current={on ? "page" : undefined}
               aria-label={o.name}
               title={o.name}
-              className={`relative flex h-14 w-12 shrink-0 items-center justify-center rounded-full ${on ? "" : "opacity-55"}`}
+              className={`relative flex shrink-0 snap-start items-center justify-center rounded-full ${on ? "" : "opacity-55"}`}
+              style={{ width: "var(--slot)", height: "var(--slot)" }}
             >
-              <OshiAvatar oshi={o} size={44} />
+              <OshiAvatar oshi={o} size="var(--avatar)" />
               {on ? <span className="absolute bottom-0 h-[3px] w-5 rounded-full bg-white" aria-hidden /> : null}
               {count > 0 ? (
                 <span className="num absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ff2d6f] px-1 text-[10px] font-bold text-white">
@@ -295,14 +307,14 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
           );
         })}
       </nav>
-      <div className="pointer-events-none absolute top-[env(safe-area-inset-top)] right-0 z-30 h-16 w-20 bg-gradient-to-l from-black via-black/80 to-transparent" />
-      <button
+            <button
         type="button"
         onClick={refresh}
         disabled={refreshing}
         aria-label="新着を取りに行く"
         title="新着を取りに行く"
-        className="absolute top-[calc(10px+env(safe-area-inset-top))] right-2 z-30 flex h-11 w-11 items-center justify-center rounded-full border border-white/25 bg-white/10 text-white shadow-[0_4px_16px_rgba(0,0,0,.4)] backdrop-blur-md transition active:scale-90 disabled:opacity-70"
+        style={{ width: "var(--avatar)", height: "var(--avatar)", right: "calc((100vw - var(--slot) * 5) / 2 + (var(--slot) - var(--avatar)) / 2)", top: "calc(env(safe-area-inset-top) + 4px + (var(--slot) - var(--avatar)) / 2)" }}
+        className="absolute z-30 flex items-center justify-center rounded-full border border-white/25 bg-white/10 text-white shadow-[0_4px_16px_rgba(0,0,0,.4)] backdrop-blur-md transition active:scale-90 disabled:opacity-70"
       >
         <svg
           viewBox="0 0 24 24"
@@ -319,7 +331,7 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
         </svg>
       </button>
       {note ? (
-        <p className="absolute top-16 left-1/2 z-30 -translate-x-1/2 rounded-full bg-white px-4 py-1.5 text-[13px] font-bold whitespace-nowrap text-black">
+        <p className="absolute top-[var(--bar)] left-1/2 z-30 -translate-x-1/2 rounded-full bg-white px-4 py-1.5 text-[13px] font-bold whitespace-nowrap text-black">
           {note}
         </p>
       ) : null}
@@ -559,7 +571,7 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
           href={item.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="absolute inset-x-0 top-16 bottom-0 z-[6] flex flex-col justify-center px-6 pr-20 pb-44"
+          className="absolute inset-x-0 top-[var(--bar)] bottom-0 z-[6] flex flex-col justify-center px-6 pr-20 pb-44"
         >
           <p className="truncate text-xs font-extrabold tracking-wide text-white/80">BLOG ・ {hostOf(item.url)}</p>
           <p className="mt-4 line-clamp-[8] text-[26px] leading-[1.45] font-black [text-shadow:0_2px_12px_rgba(0,0,0,.35)]">{title}</p>
@@ -625,7 +637,7 @@ function EmbedSlide({ source, from, oshi, live }: { source: Source; from: string
   return (
     <>
       <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 70% 10%, ${oshi.color}88, #000 70%)` }} />
-      <div className="absolute inset-x-0 top-16 bottom-0 overflow-hidden bg-white text-black">
+      <div className="absolute inset-x-0 top-[var(--bar)] bottom-0 overflow-hidden bg-white text-black">
         {live ? (
           <EmbedCard source={source} oshiName={oshi.name} fill autoLoad />
         ) : (
@@ -687,7 +699,7 @@ function InstaSlide({ source, code, from, oshi, near }: { source: Source; code: 
             alt={`${oshi.name}のInstagramの投稿`}
             referrerPolicy="no-referrer"
             onError={() => setBroken(true)}
-            className="absolute inset-x-0 top-16 bottom-0 h-[calc(100%-4rem)] w-full object-contain"
+            className="absolute inset-x-0 top-[var(--bar)] bottom-0 h-[calc(100%-var(--bar))] w-full object-contain"
           />
           {media?.video ? (
             <a
@@ -704,7 +716,7 @@ function InstaSlide({ source, code, from, oshi, near }: { source: Source; code: 
       ) : (
         <>
           <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 70% 10%, ${oshi.color}88, #000 70%)` }} />
-          <div className="absolute inset-x-0 top-16 bottom-0 overflow-hidden bg-white">
+          <div className="absolute inset-x-0 top-[var(--bar)] bottom-0 overflow-hidden bg-white">
             {near && media ? (
               <InstagramPost code={code} title={`${oshi.name}のInstagramの投稿`} />
             ) : (
@@ -729,7 +741,7 @@ function TweetSlide({ source, id, at, from, oshi, near }: {
   return (
     <>
       <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 70% 10%, ${oshi.color}88, #000 70%)` }} />
-      <div className="absolute inset-x-0 top-16 bottom-0 overflow-hidden bg-black pb-40">
+      <div className="absolute inset-x-0 top-[var(--bar)] bottom-0 overflow-hidden bg-black pb-40">
         {near ? <XPostEmbed id={id} url={url} theme="dark" /> : <div className="flex h-full items-center justify-center text-sm text-white/50">X</div>}
       </div>
       {/* 投稿の上の透明な層: 上下のスワイプを受け取る(開くのは右の「開く」から) */}

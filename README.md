@@ -324,6 +324,15 @@ LIVE記録の入力画面は、上の「LIVE記録を編集／セトリ記録を
 - プランの機能の「セットリスト」がOFFのときは、この項目も隠す。
 
 
+## Supabase の自動一時停止を防ぐ（生存確認）
+
+Supabase の無料プランは、しばらく使われないとプロジェクトが自動で一時停止し、ログインできなくなる（2026年11月に一度停止した）。
+そこで Vercel の定期実行で、毎日1回 `/api/keepalive` を呼び、データベースに軽くアクセスする（`vercel.json` の `crons`。`0 3 * * *` = 毎日 12:00 ごろ（日本時間）。無料プランの定期実行は1日1回まで・時刻は前後する）。
+
+- `/api/keepalive`（`api/keepalive.js`）は、公開用のキーで `oshikatsu_keepalive()`（1 を返すだけ。`supabase/migrations/20261110010000_oshikatsu_keepalive.sql`）を呼ぶ。関数がまだ無いときは、公開の表への問い合わせでデータベースまで届かせる。秘密のキーは使わない。
+- Vercel の環境変数に `CRON_SECRET` を設定すると、Vercel の定期実行（`Authorization: Bearer <CRON_SECRET>` を自動で付ける）からの呼び出しだけを受け付ける。
+- 動いているかは、Vercel の Settings → Cron Jobs で確認できる（その場で実行する「Run」もある）。
+
 ## 残作業
 
 - **Supabase の組織の移行**（未着手）：「Marine Wallet」のプロジェクトを、個人の組織（minatani-01's Org）から推し活手帳と同じ **unicov-jp** の組織へ移す。移すと、Claude の Supabase 接続を unicov-jp だけにしても、推し活手帳と Marine Wallet の両方のセッションからプロジェクトが見えるようになる（今は接続が minatani-01's Org 側のため、推し活手帳のプロジェクトが Claude から見えない）。

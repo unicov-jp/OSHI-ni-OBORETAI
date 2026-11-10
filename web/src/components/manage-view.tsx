@@ -156,19 +156,23 @@ function ImportAll({ oshi, sources, disabled }: { oshi: Oshi[]; sources: Source[
     });
   };
 
-  // 画面を開いたら自動で取り込む
+  // 画面を開いたら自動で取り込む(描画が終わってから始める)
   useEffect(() => {
-    if (started.current || disabled || count === 0) return;
-    started.current = true;
-    // 取り込めなかったものを開くたびに試し直さないよう、自動の取り込みはこのタブで1回だけにする
-    const key = "oshi-sns-auto-import";
-    try {
-      if (sessionStorage.getItem(key)) return;
-      sessionStorage.setItem(key, "1");
-    } catch {
-      // 保存できない環境でもそのまま取り込む
-    }
-    run();
+    if (disabled || count === 0) return;
+    const timer = setTimeout(() => {
+      if (started.current) return;
+      started.current = true;
+      // 取り込めなかったものを開くたびに試し直さないよう、自動の取り込みはこのタブで1回だけにする
+      const key = "oshi-sns-auto-import";
+      try {
+        if (sessionStorage.getItem(key)) return;
+        sessionStorage.setItem(key, "1");
+      } catch {
+        // 保存できない環境でもそのまま取り込む
+      }
+      run();
+    }, 0);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

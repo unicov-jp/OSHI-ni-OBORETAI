@@ -34,7 +34,8 @@ export function ManageView({ viewer, oshi, categories, sources, initialSns, init
   // 推しの編集画面: null = 閉じている、"new" = 新しく登録、それ以外 = 編集する推しの id
   const [oshiEditing, setOshiEditing] = useState<string | null>(initialNew ? "new" : (initialEdit ?? null));
   // 新着の画面から開いたときは、閉じたら新着(その推し)に戻る
-  const backToFeed = (id?: string | null) => router.push(id ? `/app?tab=${encodeURIComponent(id)}` : "/app");
+  // 履歴を置き換えて戻る(登録画面を履歴に残さない。SNSの投稿を開いて戻ったときに登録画面が見えないように)
+  const backToFeed = (id?: string | null) => router.replace(id ? `/app?tab=${encodeURIComponent(id)}` : "/app");
   const [message, setMessage] = useState<string | null>(null);
   const oshiFull = atLimit(oshi.length, viewer.maxOshi);
   const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? "";

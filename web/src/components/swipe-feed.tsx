@@ -307,7 +307,8 @@ export function SwipeFeed({
   const go = useCallback(
     (step: number) => {
       const next = oshi[index + step];
-      if (next) router.push(`/app?tab=${encodeURIComponent(next.id)}`);
+      // 推しのアイコンと同じく履歴は置き換える(戻る操作で推しを1人ずつさかのぼらないように)
+      if (next) router.replace(`/app?tab=${encodeURIComponent(next.id)}`);
     },
     [oshi, index, router],
   );

@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { BackToNormal } from "@/components/mode-switch";
 import { SwipeFeed, type FeedView } from "@/components/swipe-feed";
+import { getFeedMode, oshiInMode } from "@/lib/feed-mode";
+import { canUseAdvanced } from "@/lib/plans";
 import { EmptyState, buttonClass } from "@/components/ui";
 import { requireViewer } from "@/lib/auth";
 import { getLatestByOshi, getLibrary, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
@@ -23,13 +26,33 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     getUnreadCounts(),
     getLatestByOshi(),
   ]);
+  // 通常 / Sensitive のどちらの推しを見るか(設定・管理ボタンの長押しで切り替える)
+  const mode = await getFeedMode(viewer);
+  const inMode = oshiInMode(library.oshi, mode);
   // 上部の推しのアイコンは、新着が新しく届いた推しから順に並べる(新着がまだ無い推しは、登録の順で後ろに)
-  const ordered = library.oshi
+  const ordered = inMode
     .map((o, index) => ({ o, index, at: latest[o.id] ?? "" }))
     .sort((a, b) => (a.at === b.at ? a.index - b.index : a.at < b.at ? 1 : -1))
     .map((x) => x.o);
 
-  if (library.oshi.length === 0) {
+  if (mode === "sensitive" && inMode.length === 0) {
+    return (
+      <EmptyState
+        title="Sensitive の推しはまだいません"
+        body="推しを登録するときに「Sensitive」を ON にすると、ここに並びます。"
+        action={
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link href="/app/manage?new=1" className={buttonClass("primary")}>
+              Sensitive の推しを登録
+            </Link>
+            <BackToNormal />
+          </div>
+        }
+      />
+    );
+  }
+
+  if (inMode.length === 0) {
     return (
       <EmptyState
         title="推しがまだ登録されていません"
@@ -81,6 +104,8 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
       // 推しが変わったら最初の1枚から見せる
       key={active.id}
       isAdmin={viewer.role === "admin"}
+      mode={mode}
+      canSensitive={canUseAdvanced(viewer.plan)}
       oshi={ordered}
       active={active}
       unread={unread}

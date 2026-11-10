@@ -766,5 +766,9 @@ alter table public.oshikatsu_sources
   add constraint oshikatsu_sources_platform_check
   check (platform in ('youtube', 'blog', 'x', 'instagram', 'threads', 'tiktok', 'link', 'fantia', 'myfans', 'xfans'));
 
+-- プラン名の変更: Starter → Pro、Advanced → Sensitive(管理画面で別の名前にしていれば、その名前のまま)
+update public.oshikatsu_plan_names set label = 'Pro', updated_at = now() where plan = 'paid' and label = 'Starter';
+update public.oshikatsu_plan_names set label = 'Sensitive', updated_at = now() where plan = 'advanced' and label = 'Advanced';
+
 -- 追加した表・関数をすぐ使えるように、Supabase のAPIの一覧を読み直させる
 notify pgrst, 'reload schema';

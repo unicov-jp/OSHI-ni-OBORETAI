@@ -72,7 +72,7 @@ async function addSourceFor(
 
   // Fantia・myfans・xfans は Advanced プランだけ
   if (ADVANCED_PLATFORMS.includes(account.platform) && !canUseAdvanced(viewer.plan)) {
-    return { ok: false, error: `${PLATFORM_LABEL[account.platform]}は Advanced プランで登録できます。` };
+    return { ok: false, error: `${PLATFORM_LABEL[account.platform]}は Sensitive プランで登録できます。` };
   }
 
   const expected = parsed.data.expected;

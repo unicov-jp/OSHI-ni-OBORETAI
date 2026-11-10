@@ -45,6 +45,8 @@ export type OshiEditable = {
   birthYear: string;
   person: SnsInput;
   groups: GroupInput[];
+  // Sensitive として登録する推しか
+  sensitive: boolean;
 };
 
 export const emptySns = (): SnsInput => ({
@@ -106,6 +108,7 @@ export function editableFrom(id: string, data: Raw): OshiEditable {
     birthYear: str(data.birthYear),
     person,
     groups,
+    sensitive: data.sensitive === true,
   };
 }
 
@@ -142,6 +145,7 @@ export function mergeIntoRecord(current: Raw | null, input: OshiEditable, extra:
     birthMonth: input.birthMonth,
     birthDay: input.birthDay,
     birthYear: input.birthYear,
+    sensitive: input.sensitive === true,
     groups,
     // 古い形式(group 1つ)の項目は、グループを消したときに復活しないよう空にする
     group: "",

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
+import { SettingSwitch } from "@/components/setting-switch";
 import { Button, Field, inputClass, Notice } from "@/components/ui";
 import { deleteOshiRecord, getOshiForEdit, removeOshiPhoto, saveOshiRecord } from "@/lib/actions/oshi";
 import { importAllSns } from "@/lib/actions/sources";
@@ -23,18 +24,21 @@ const blank = (): OshiEditable => ({
   birthYear: "",
   person: emptySns(),
   groups: [],
+  sensitive: false,
 });
 
 // section: 推しの画面のタブごとに出す部分(all=新しく登録するときの全部、profile=写真・名前・色・誕生日、
 // person=本人のSNS、groups=グループとそのSNS)。タブの中で保存したときは、その画面のまま「保存しました」と出す
 export type EditorSection = "all" | "profile" | "person" | "groups";
 
-export function OshiEditor({ oshiId, onDone, section = "all" }: {
+// canSensitive: Sensitive の登録ができるプランか。defaultSensitive: 新しく登録するときの初め(Sensitive に切り替え中なら ON)
+export function OshiEditor({ oshiId, onDone, section = "all", canSensitive = false, defaultSensitive = false }: {
   oshiId: string | null; onDone: (message: string, id?: string) => void; section?: EditorSection;
+  canSensitive?: boolean; defaultSensitive?: boolean;
 }) {
   const router = useRouter();
   const [saved, setSaved] = useState<string | null>(null);
-  const [value, setValue] = useState<OshiEditable | null>(oshiId ? null : blank());
+  const [value, setValue] = useState<OshiEditable | null>(oshiId ? null : { ...blank(), sensitive: canSensitive && defaultSensitive });
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -146,6 +150,15 @@ export function OshiEditor({ oshiId, onDone, section = "all" }: {
             </select>
           </div>
         </fieldset>
+        {canSensitive ? (
+          <SettingSwitch
+            title="Sensitive"
+            status={value.sensitive ? "ON" : "OFF"}
+            on={value.sensitive}
+            description="ON にすると、設定・管理ボタンの長押しで切り替える Sensitive の一覧に入ります。"
+            onToggle={() => set({ sensitive: !value.sensitive })}
+          />
+        ) : null}
       </div>
       ) : null}
 
@@ -283,7 +296,7 @@ function SnsFields({ title, value, onChange, compact = false }: {
       {placed ? <p className="text-xs text-ok">{placed}。保存すると新着を取る先にも登録されます。</p> : null}
       <div className="grid gap-3 sm:grid-cols-2">
         {SNS_KEYS.map((key) => (
-          <Field key={key} label={ADVANCED_SNS_KEYS.includes(key) ? `${SNS_LABEL[key]}(Advanced)` : SNS_LABEL[key]}>
+          <Field key={key} label={ADVANCED_SNS_KEYS.includes(key) ? `${SNS_LABEL[key]}(Sensitive)` : SNS_LABEL[key]}>
             <input
               className={inputClass}
               value={value[key]}

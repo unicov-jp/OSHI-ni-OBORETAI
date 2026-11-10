@@ -154,6 +154,7 @@ export function recordsToLibrary(
       last_seen_at: seen[row.id] ?? fallbackSeen,
       photo: photoVersion(data.photo),
       sns,
+      sensitive: data.sensitive === true,
     };
   });
 

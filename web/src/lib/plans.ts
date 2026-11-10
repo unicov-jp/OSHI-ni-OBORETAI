@@ -1,9 +1,9 @@
 import type { Plan } from "@/lib/types";
 
 // プランの表示名の既定(管理画面の「料金」で変えられる。変えた名前は getPlanLabels で読む)
-export const PLAN_LABEL: Record<Plan, string> = { master: "Developer", advanced: "Advanced", paid: "有料", free: "無料" };
+export const PLAN_LABEL: Record<Plan, string> = { master: "Developer", advanced: "Sensitive", paid: "Pro", free: "無料" };
 
-// Fantia・myfans・xfans を登録できるプラン
+// Sensitive プラン(内部の名前は advanced): Fantia・myfans・xfans の登録と、推しの Sensitive 登録・切り替えができる
 export const canUseAdvanced = (plan: Plan) => plan === "advanced" || plan === "master";
 export type PlanLabels = Record<Plan, string>;
 

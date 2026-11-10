@@ -67,10 +67,10 @@ export default async function PricingPage() {
         )}
       </section>
 
-      {/* Advanced: 有料の機能に加えて Fantia・myfans・xfans を登録できる */}
+      {/* Sensitive(内部の名前は advanced): 有料の機能に加えて、推しの Sensitive 登録と Fantia・myfans・xfans */}
       <section className="rounded-2xl border border-line bg-surface p-5">
         <PriceSimulator name={labels.advanced} perOshi={prices.advanced} freeOshi={FREE_OSHI} maxOshi={PAID_MAX_OSHI} />
-        <p className="num mt-1 text-xs text-muted">{labels.paid}の内容 ＋ Fantia・myfans・xfans を登録できる</p>
+        <p className="num mt-1 text-xs text-muted">{labels.paid}の内容 ＋ 推しの{labels.advanced}登録・切り替え、Fantia・myfans・xfans の登録</p>
       </section>
 
       {/* どのプランでも使えること */}

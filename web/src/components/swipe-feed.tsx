@@ -11,6 +11,7 @@ import { CalendarBody, GalleryBody } from "@/components/memories";
 import { OshiAvatar } from "@/components/oshi-avatar";
 import { formatRelative } from "@/components/ui";
 import { loadMore, markSeen } from "@/lib/actions/oshi";
+import { toggleFeedMode } from "@/lib/actions/mode";
 import { importAllSns } from "@/lib/actions/sources";
 import { isYoutubeShort, PLATFORM_LABEL, youtubeVideoId } from "@/lib/platforms";
 import { buzz } from "@/lib/haptic";
@@ -25,6 +26,9 @@ import type { CalendarEntry, GalleryPhoto, Oshi, Platform, Source, TimelineItem 
 
 type Props = {
   isAdmin: boolean;
+  // 通常 / Sensitive のどちらの推しを見ているか。canSensitive: 切り替えられるプランか
+  mode: "normal" | "sensitive";
+  canSensitive: boolean;
   oshi: Oshi[];
   active: Oshi;
   unread: Record<string, number>;
@@ -125,12 +129,15 @@ function subscribeActivation(notify: () => void): () => void {
 // activated: 画面をもう触ったか。ブラウザは、一度も触っていないうちは自動再生で音を出させない
 const Controls = createContext<{
   muted: boolean; toggleMute: () => boolean; activated: boolean; activate: () => void; isAdmin: boolean;
+  mode: "normal" | "sensitive"; canSensitive: boolean;
 }>({
   muted: false,
   toggleMute: () => false,
   activated: true,
   activate: () => {},
   isAdmin: false,
+  mode: "normal",
+  canSensitive: false,
 });
 
 type Slide =
@@ -144,7 +151,7 @@ type Slide =
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
 export function SwipeFeed({
-  isAdmin, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view: initialView, gallery, calendar,
+  isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view: initialView, gallery, calendar,
 }: Props) {
   const [view, setView] = useState<FeedView>(initialView);
   // 切り替えた向き(画面を横から滑り込ませる向き)
@@ -429,8 +436,10 @@ export function SwipeFeed({
       activated,
       activate: () => setActivated(true),
       isAdmin,
+      mode,
+      canSensitive,
     }),
-    [muted, activated, isAdmin],
+    [muted, activated, isAdmin, mode, canSensitive],
   );
 
   return (
@@ -680,8 +689,9 @@ function Sheet({ title, items, onClose }: { title: string; items: SheetItem[]; o
 // 推しのメニュー(右下の推しのアイコンの長押し)。今のアプリ(推し活手帳)の機能は、ここに順に集めていく
 function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
   const items: { href: string; label: string; note: string }[] = [
-    { href: `/app/manage?sns=${encodeURIComponent(oshi.id)}`, label: "SNSを登録・編集", note: "新着を取る YouTube・Blog・X・Instagram・TikTok" },
-    { href: `/app/manage?edit=${encodeURIComponent(oshi.id)}`, label: "推しを編集", note: "名前・メンバーカラー・誕生日・グループ・SNS" },
+    { href: "/app/manage?new=1", label: "推しを登録", note: "新しい推しを登録する" },
+    { href: `/app/manage?sns=${encodeURIComponent(oshi.id)}`, label: "SNSを追加", note: `${oshi.name}の個人SNS・グループSNS` },
+    { href: `/app/manage?edit=${encodeURIComponent(oshi.id)}`, label: "推しを編集", note: "アイコンの写真・名前・メンバーカラー・誕生日" },
   ];
   return (
     <div className="fixed inset-0 z-[60] flex items-end bg-black/60 text-white" onClick={onClose} role="presentation">
@@ -726,7 +736,24 @@ function SideActions({ oshi, url, title, platform, reactions }: {
   // 右下の推しのアイコンを長押し: その推しのメニュー(SNSの登録・推しの編集など)
   const avatarPress = useLongPress(() => setMenu(true));
   // 設定(管理)ボタンを長押し: 推しを新しく登録
-  const newPress = useLongPress(() => router.push("/app/manage?new=1"));
+  // 設定(管理)ボタンを長押し: 通常 ⇔ Sensitive の推しを切り替える(Sensitive プランだけ)
+  const { mode, canSensitive } = useContext(Controls);
+  const [modeNote, setModeNote] = useState<string | null>(null);
+  const newPress = useLongPress(() => {
+    if (!canSensitive) {
+      setModeNote("Sensitive プランで使えます");
+      setTimeout(() => setModeNote(null), 2000);
+      return;
+    }
+    void toggleFeedMode().then((result) => {
+      if (!result.ok || !result.data) return;
+      setModeNote(result.data.mode === "sensitive" ? "Sensitive に切り替えました" : "通常に切り替えました");
+      setTimeout(() => setModeNote(null), 2000);
+      // 切り替えた一覧の最初の推しから見せる
+      router.replace("/app");
+      router.refresh();
+    });
+  });
   // 音の状態はボタンの色で示す: 音あり=白っぽい / ミュート中=ピンク。
   // 起動直後(まだ画面を触っていない)はブラウザの決まりで音を出せないので、ピンクで点滅させ「タップで音」と知らせる
   const waiting = !muted && !activated;
@@ -792,17 +819,25 @@ function SideActions({ oshi, url, title, platform, reactions }: {
         </span>
         {waiting ? "タップで音" : muted ? "ミュート中" : "音あり"}
       </button>
-      {/* マスターは「管理」(設定も管理の中から開ける)、それ以外は「設定」 */}
+      {modeNote
+        ? createPortal(
+            <p className="fixed top-1/2 left-1/2 z-[70] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white px-5 py-2.5 text-sm font-bold whitespace-nowrap text-black shadow-xl">
+              {modeNote}
+            </p>,
+            document.body,
+          )
+        : null}
+      {/* マスターは「管理」(設定も管理の中から開ける)、それ以外は「設定」。Sensitive を見ているときはピンク */}
       {isAdmin ? (
-        <Link href="/admin" className={item} aria-label="管理(長押しで推しを新しく登録)" {...newPress}>
-          <span className={round}>
+        <Link href="/admin" className={item} aria-label="管理(長押しで通常とSensitiveを切り替え)" {...newPress}>
+          <span className={`${round} ${mode === "sensitive" ? "!bg-[#ff2d6f]" : ""}`}>
             <Icon d={ICON.admin} />
           </span>
           管理
         </Link>
       ) : (
-        <Link href="/app/settings" className={item} aria-label="設定(長押しで推しを新しく登録)" {...newPress}>
-          <span className={round}>
+        <Link href="/app/settings" className={item} aria-label="設定(長押しで通常とSensitiveを切り替え)" {...newPress}>
+          <span className={`${round} ${mode === "sensitive" ? "!bg-[#ff2d6f]" : ""}`}>
             <Icon d={ICON.settings} />
           </span>
           設定

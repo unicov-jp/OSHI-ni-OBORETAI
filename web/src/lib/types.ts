@@ -27,6 +27,8 @@ export type Oshi = {
   photo: string | null;
   // 今のアプリで推しに登録してあるSNSのURL(取り込みの候補)
   sns: { platform: Platform; url: string; from: string }[];
+  // Sensitive として登録した推し(Sensitive プランで切り替えて見る)
+  sensitive: boolean;
 };
 
 export type Source = {

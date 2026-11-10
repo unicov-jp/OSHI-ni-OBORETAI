@@ -193,7 +193,7 @@ async function main() {
   const before = { id: "o1", name: "旧", photo: "gdrive:abc", gallery: ["gdrive:g1"], _order: 2, group: "旧G", sns_group_x: "old", groups: [{ id: "g1", name: "A", color: "#000000", extra: 1 }] };
   const merged = mergeIntoRecord(before, {
     id: "o1", name: " 新 ", color: "#EC6FA9", agency: "事務所", birthMonth: "1", birthDay: "6", birthYear: "",
-    person: { ...emptySns(), x: "@me" },
+    person: { ...emptySns(), x: "@me" }, sensitive: false,
     groups: [{ id: "g1", name: "A2", sns: { ...emptySns(), web: "https://a.example.com" } }, { name: "", sns: emptySns() }],
   }, { id: "o1", order: 0 });
   check("記録: 写真とギャラリーを残す", [merged.photo, merged.gallery, merged._order], ["gdrive:abc", ["gdrive:g1"], 2]);

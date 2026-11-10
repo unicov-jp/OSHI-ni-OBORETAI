@@ -713,3 +713,6 @@ end;
 $$;
 revoke all on function public.oshikatsu_admin_set_plan_names(jsonb) from public, anon;
 grant execute on function public.oshikatsu_admin_set_plan_names(jsonb) to authenticated;
+
+-- 追加した表・関数をすぐ使えるように、Supabase のAPIの一覧を読み直させる
+notify pgrst, 'reload schema';

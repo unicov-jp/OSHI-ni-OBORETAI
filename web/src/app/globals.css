@@ -1,0 +1,247 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+  配色: 「水に沈む」がコンセプト。ライトは水際、ダークは深い水の中。
+  画面の色味は控えめにして、色は推しごとのメンバーカラー(ペンライトの灯り)に任せる。
+*/
+:root {
+  --bg: #f1f7f9;
+  --surface: #ffffff;
+  --sunken: #e4eef2;
+  --line: #cfdfe6;
+  --text: #0b2433;
+  --muted: #4f6f7f;
+  --brand: #0a7c9c;
+  --brand-ink: #ffffff;
+  --danger: #b92f37;
+  --ok: #18774e;
+  --warn: #8a5a00;
+  --overlay: rgb(6 20 31 / 0.45);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #06141f;
+  --surface: #0c2030;
+  --sunken: #091a28;
+  --line: #1d3f56;
+  --text: #e6f2f5;
+  --muted: #8fb0bf;
+  --brand: #3fc8e4;
+  --brand-ink: #04222c;
+  --danger: #ff8086;
+  --ok: #5fd3a0;
+  --warn: #f2b84b;
+  --overlay: rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --font-sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", "Noto Sans JP",
+    "Noto Sans CJK JP", Meiryo, system-ui, sans-serif;
+  --font-display: "Dela Gothic One", "Hiragino Sans", "Yu Gothic UI", sans-serif;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  font-feature-settings: "palt";
+  -webkit-text-size-adjust: 100%;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/*
+  共通UIルール: 一覧の要素は文字数で大きさを変えない。
+  .clamp-N は「N行ぶんの高さを常に確保し、あふれた分は…で省略」する。
+  全文は title 属性(PC)と詳細ダイアログ(スマホ含む)で確認できる。
+*/
+.clamp-1,
+.clamp-2,
+.clamp-3 {
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.clamp-1 {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  height: 1lh;
+}
+.clamp-2,
+.clamp-3 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+}
+.clamp-2 {
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  height: 2lh;
+}
+.clamp-3 {
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  height: 3lh;
+}
+
+/* 一覧カードの列。同じ画面幅では全カードが同じ幅・同じ高さになる。 */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 16px;
+}
+@media (max-width: 560px) {
+  .card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+}
+
+/* 表: 列幅は固定。セルの中身は省略表示。 */
+.data-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.data-table th,
+.data-table td {
+  height: 48px;
+  padding: 0 12px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--line);
+}
+.data-table th {
+  height: 40px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--sunken);
+}
+
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+dialog::backdrop {
+  background: var(--overlay);
+}
+
+/* ペンライトの灯り: メンバーカラーの棒が、暗い側でだけ淡く発光する */
+.light {
+  background: var(--c);
+  border-radius: 999px;
+}
+[data-theme="dark"] .light {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--c) 70%, transparent);
+}
+
+/* トップページの灯り。読み込み時に一度だけ順番に点く。 */
+@keyframes light-on {
+  from {
+    opacity: 0.15;
+    transform: scaleY(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+.hero-light {
+  transform-origin: bottom;
+  animation: light-on 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i) * 90ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-light {
+    animation: none;
+  }
+}
+
+/* ---- トップページのスクロール演出 ---- */
+
+/* 画面に入ったら一度だけ現れる。JavaScriptが動く環境(html.js)でのみ隠しておく。 */
+.js .reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.7s ease,
+    transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.js .reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* 傾いた画面の模型。--tilt (1→0) はスクロール量から設定される。 */
+.showcase-panel {
+  transform: rotateX(calc(var(--tilt) * 38deg)) rotateY(calc(var(--tilt) * -24deg))
+    rotateZ(calc(var(--tilt) * 7deg)) scale(calc(1 - var(--tilt) * 0.1));
+  transform-origin: 50% 60%;
+  will-change: transform;
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.showcase-row {
+  animation: row-in 0.35s ease both;
+}
+
+/* 3D背景の上でも文字が読めるようにする下地 */
+.glass {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .js .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .showcase-panel {
+    transform: none;
+  }
+  .showcase-row {
+    animation: none;
+  }
+}

@@ -3,6 +3,7 @@ node_modules/
 /.pnp
 .pnp.js
 package-lock.json
+!web/package-lock.json
 yarn.lock
 
 # Environment variables (最重要)

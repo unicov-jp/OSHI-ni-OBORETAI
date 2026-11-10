@@ -6,7 +6,7 @@ import { Button, Field, inputClass, Notice } from "@/components/ui";
 import { deleteOshiRecord, getOshiForEdit, removeOshiPhoto, saveOshiRecord } from "@/lib/actions/oshi";
 import { importAllSns } from "@/lib/actions/sources";
 import {
-  emptySns, SNS_KEYS, SNS_LABEL, SNS_PLACEHOLDER, type GroupInput, type OshiEditable, type SnsInput,
+  emptySns, SNS_KEYS, SNS_LABEL, SNS_PLACEHOLDER, type GroupInput, type OshiEditable, type SnsInput, type SnsKey,
 } from "@/lib/oshi-record";
 import { MEMBER_COLORS } from "@/lib/platforms";
 
@@ -220,12 +220,63 @@ export function OshiEditor({ oshiId, onDone, section = "all" }: {
   );
 }
 
+// 貼り付けたURLから、どのSNSの欄に入れるかを見分ける(当てはまらないものは公式HP・Blog)
+function snsKeyOf(url: string): SnsKey {
+  const host = (() => {
+    try {
+      return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^(www|m|mobile)\./, "");
+    } catch {
+      return "";
+    }
+  })();
+  if (host === "x.com" || host === "twitter.com") return "x";
+  if (host === "instagram.com") return "instagram";
+  if (host === "tiktok.com" || host.endsWith(".tiktok.com")) return "tiktok";
+  if (host === "youtube.com" || host === "youtu.be") return "youtube";
+  return "web";
+}
+
+// SNSの入力: いちばん上にURLを貼り付ける欄があり、どのSNSかを見分けて自動で振り分ける。下の欄で直接直すこともできる
 function SnsFields({ title, value, onChange, compact = false }: {
   title: string; value: SnsInput; onChange: (next: SnsInput) => void; compact?: boolean;
 }) {
+  const [url, setUrl] = useState("");
+  const [placed, setPlaced] = useState<string | null>(null);
+  const place = () => {
+    const text = url.trim();
+    if (!text) return;
+    const key = snsKeyOf(text);
+    onChange({ ...value, [key]: text });
+    setPlaced(`${SNS_LABEL[key]}に入れました`);
+    setUrl("");
+  };
   return (
     <section className="space-y-3">
       {compact ? <p className="text-[13px] font-medium text-muted">{title}</p> : <h3 className="text-[15px] font-semibold">{title}</h3>}
+      <div className="flex gap-2">
+        <input
+          className={inputClass}
+          value={url}
+          inputMode="url"
+          maxLength={300}
+          placeholder="SNSのURLを貼り付け(自動で振り分け)"
+          aria-label={`${title}のURL`}
+          onChange={(e) => {
+            setUrl(e.target.value);
+            setPlaced(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              place();
+            }
+          }}
+        />
+        <Button className="w-[72px] shrink-0" onClick={place} disabled={!url.trim()}>
+          入れる
+        </Button>
+      </div>
+      {placed ? <p className="text-xs text-ok">{placed}。保存すると新着を取る先にも登録されます。</p> : null}
       <div className="grid gap-3 sm:grid-cols-2">
         {SNS_KEYS.map((key) => (
           <Field key={key} label={SNS_LABEL[key]}>

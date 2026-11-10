@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
 import {
   Badge, Button, Clamp, EmptyState, inputClass, Light, Notice,
@@ -116,7 +116,9 @@ function pendingCount(oshi: Oshi[], sources: Source[]): number {
   return count;
 }
 
-// 今のアプリで全員の推しに登録してあるSNSを、まとめて新着の取得先に取り込む
+// 今のアプリで全員の推しに登録してあるSNSを、新着の取得先に取り込む。
+// 画面を開いたときに、まだ取り込んでいないものがあれば自動で取り込む(1回の表示につき1度。
+// 時間切れで残りがあれば、取り込めている間は続けて取り込む)。手動のボタンでもやり直せる。
 function ImportAll({ oshi, sources, disabled }: { oshi: Oshi[]; sources: Source[]; disabled: boolean }) {
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<{
@@ -124,37 +126,70 @@ function ImportAll({ oshi, sources, disabled }: { oshi: Oshi[]; sources: Source[
     text: string;
     failed: { name: string; url: string; error: string }[];
   } | null>(null);
+  const started = useRef(false);
   const count = pendingCount(oshi, sources);
-  if (count === 0 && !result) return null;
 
   const run = () => {
     setResult(null);
     startTransition(async () => {
-      const response = await importAllSns();
-      if (!response.ok) return setResult({ tone: "danger", text: response.error, failed: [] });
-      const { added, linked, failed, remaining } = response.data ?? { added: 0, linked: 0, failed: [], remaining: 0 };
-      const parts = [`${added + linked}件を取り込みました`];
+      let added = 0;
+      let linked = 0;
+      let failed: { name: string; url: string; error: string }[] = [];
+      let remaining = 0;
+      // 時間切れで残った分は、取り込めている間だけ続けて取り込む(最大5回)
+      for (let round = 0; round < 5; round++) {
+        const response = await importAllSns();
+        if (!response.ok) return setResult({ tone: "danger", text: response.error, failed: [] });
+        const data = response.data ?? { added: 0, linked: 0, failed: [], remaining: 0 };
+        added += data.added;
+        linked += data.linked;
+        failed = data.failed;
+        remaining = data.remaining;
+        if (remaining === 0 || data.added + data.linked === 0) break;
+      }
+      if (added + linked === 0 && failed.length === 0 && remaining === 0) return;
+      const parts = [`今のアプリのSNSを${added + linked}件取り込みました`];
       if (linked > 0) parts.push(`(うち${linked}件は新着を取れないためリンクとして保存)`);
       if (failed.length > 0) parts.push(`。${failed.length}件は取り込めませんでした`);
-      if (remaining > 0) parts.push(`。残り${remaining}件は、もう一度押すと続きから取り込みます`);
+      if (remaining > 0) parts.push(`。残り${remaining}件は、時間をおいて「取り込む」を押してください`);
       setResult({ tone: failed.length > 0 || remaining > 0 ? "warn" : "ok", text: parts.join(""), failed });
     });
   };
+
+  // 画面を開いたら自動で取り込む
+  useEffect(() => {
+    if (started.current || disabled || count === 0) return;
+    started.current = true;
+    // 取り込めなかったものを開くたびに試し直さないよう、自動の取り込みはこのタブで1回だけにする
+    const key = "oshi-sns-auto-import";
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch {
+      // 保存できない環境でもそのまま取り込む
+    }
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (count === 0 && !result && !pending) return null;
 
   return (
     <section className="mt-3 rounded-xl border border-line bg-surface p-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-semibold">今のアプリのSNSを取り込む</p>
+          <p className="text-[15px] font-semibold">今のアプリのSNS</p>
           <p className="text-[13px] text-muted">
-            {count > 0
-              ? `今のアプリで推しに登録してあるSNSのうち、${count}件がまだ取り込まれていません。`
-              : "今のアプリのSNSはすべて取り込み済みです。"}
+            {pending
+              ? "今のアプリで推しに登録してあるSNSを読み取っています。しばらくお待ちください。"
+              : count > 0
+                ? `まだ取り込まれていないSNSが${count}件あります。`
+                : "今のアプリのSNSはすべて取り込み済みです。"}
           </p>
         </div>
-        {count > 0 ? (
-          <Button variant="primary" className="w-[168px]" disabled={pending || disabled} onClick={run}>
-            {pending ? "取り込み中" : "まとめて取り込む"}
+        {count > 0 && !pending ? (
+          <Button className="w-[120px]" disabled={disabled} onClick={run}>
+            取り込む
           </Button>
         ) : null}
       </div>

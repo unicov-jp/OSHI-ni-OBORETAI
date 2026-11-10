@@ -11,9 +11,26 @@ import { resolveYoutubeHandle, youtubeFeedUrl } from "@/lib/fetchers/youtube";
 import { parseAccountUrl, PLATFORM_EXAMPLE, PLATFORM_LABEL } from "@/lib/platforms";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import type { ActionResult, Platform, SourceMode } from "@/lib/types";
+import { getLibrary } from "@/lib/data";
+import type { ActionResult, Platform, SourceMode, Viewer } from "@/lib/types";
 
 const DEMO_ERROR = "デモ表示では変更できません";
+// DBへの書き込みに失敗したとき、原因を調べられるよう失敗の種類(コードと短い説明)を添える。
+// 鍵の値などの秘密は含まれない。
+function dbError(error: { code?: string; message?: string } | null): string {
+  const base = "登録できませんでした。時間をおいてもう一度お試しください。";
+  if (!error) return base;
+  const message = (error.message ?? "").slice(0, 120);
+  if (error.code === "42501" || /permission denied|row-level security/i.test(message)) {
+    return `登録できませんでした(書き込みの権限がありません: ${error.code ?? ""})。サーバーの秘密鍵(SUPABASE_SECRET_KEY)の設定を確認してください。`;
+  }
+  if (error.code === "42P01" || /does not exist/i.test(message)) {
+    return `登録できませんでした(表が見つかりません: ${error.code ?? ""})。新着用のSQLを実行してください。`;
+  }
+  return `${base}(${error.code ?? "?"}: ${message})`;
+}
+
+const RATE_LIMIT_ERROR = "登録の回数が上限に達しました。1時間ほどおいてからお試しください。";
 
 const addSchema = z.object({
   oshiId: z.string().trim().min(1).max(100),
@@ -36,7 +53,15 @@ type Resolved = {
 export async function addSource(input: z.input<typeof addSchema>): Promise<ActionResult<{ note?: string }>> {
   if (DEMO) return { ok: false, error: DEMO_ERROR };
   const viewer = await requireViewer();
+  const result = await addSourceFor(viewer, input);
+  if (result.ok) revalidatePath("/app", "layout");
+  return result;
+}
 
+async function addSourceFor(
+  viewer: Viewer,
+  input: z.input<typeof addSchema>,
+): Promise<ActionResult<{ note?: string }>> {
   const parsed = addSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "入力内容を確認してください" };
   const { oshiId, label } = parsed.data;
@@ -70,18 +95,22 @@ export async function addSource(input: z.input<typeof addSchema>): Promise<Actio
 
   const admin = createAdminClient();
 
-  // 外部ページの取得を伴うため、1時間あたり30回までに制限する
-  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const { count } = await admin
-    .from("oshikatsu_rate_events")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", viewer.id)
-    .eq("action", "source.add")
-    .gte("created_at", since);
-  if ((count ?? 0) >= 30) {
-    return { ok: false, error: "登録の回数が上限に達しました。1時間ほどおいてからお試しください。" };
+  // 外部ページの取得を伴う登録(YouTube・Blog)は、1時間あたり30回までに制限する。
+  // X・Instagram・TikTok・Threads・リンクは外部に取りに行かないので数えない。
+  const fetches = account.platform === "youtube" || (account.platform === "blog" && expected !== "link");
+  if (fetches) {
+    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count } = await admin
+      .from("oshikatsu_rate_events")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", viewer.id)
+      .eq("action", "source.add")
+      .gte("created_at", since);
+    if ((count ?? 0) >= 30) {
+      return { ok: false, error: RATE_LIMIT_ERROR };
+    }
+    await admin.from("oshikatsu_rate_events").insert({ user_id: viewer.id, action: "source.add" });
   }
-  await admin.from("oshikatsu_rate_events").insert({ user_id: viewer.id, action: "source.add" });
 
   let resolved: Resolved;
   let note: string | undefined;
@@ -91,12 +120,6 @@ export async function addSource(input: z.input<typeof addSchema>): Promise<Actio
       let channelId = account.youtube?.channelId;
       let title = "";
       if (!channelId && account.youtube?.handle) {
-        if (!process.env.YOUTUBE_API_KEY) {
-          return {
-            ok: false,
-            error: "現在、@から始まるYouTubeのURLは登録できません。https://www.youtube.com/channel/UC... の形式で入力してください。",
-          };
-        }
         const channel = await resolveYoutubeHandle(account.youtube.handle, admin);
         if (!channel) return { ok: false, error: "YouTubeチャンネルが見つかりませんでした" };
         channelId = channel.channelId;
@@ -158,7 +181,7 @@ export async function addSource(input: z.input<typeof addSchema>): Promise<Actio
         )
         .select("id, platform, external_key, feed_url, title, error_count")
         .single();
-      if (error || !created) return { ok: false, error: "登録できませんでした。時間をおいてもう一度お試しください。" };
+      if (error || !created) return { ok: false, error: dbError(error) };
       feedId = created.id as string;
       newFeed = created as FeedRow;
     }
@@ -180,7 +203,7 @@ export async function addSource(input: z.input<typeof addSchema>): Promise<Actio
     if (insertError.message.includes("SOURCE_LIMIT")) {
       return { ok: false, error: `登録できるアカウントは${viewer.maxSources}件までです。` };
     }
-    return { ok: false, error: "登録できませんでした。時間をおいてもう一度お試しください。" };
+    return { ok: false, error: dbError(insertError) };
   }
 
   // 初めて登録された取得元は、その場で1回取得して新着をすぐ表示できるようにする
@@ -189,8 +212,53 @@ export async function addSource(input: z.input<typeof addSchema>): Promise<Actio
     if (!result.ok) note = "登録しました。新着の取得に失敗したため、次回の定期取得で再試行します。";
   }
 
-  revalidatePath("/app", "layout");
   return { ok: true, data: { note } };
+}
+
+// 今のアプリ(推し活手帳)で推しに登録してあるSNSを、まだ登録していない分だけまとめて取り込む。
+// 1回の実行は40秒まで。残りがあれば、もう一度押すと続きから取り込む。
+export async function importAllSns(): Promise<
+  ActionResult<{ added: number; linked: number; failed: { name: string; url: string; error: string }[]; remaining: number }>
+> {
+  if (DEMO) return { ok: false, error: DEMO_ERROR };
+  const viewer = await requireViewer();
+  const library = await getLibrary();
+
+  const normalize = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
+  const queue: { oshiId: string; name: string; platform: Platform; url: string }[] = [];
+  for (const oshi of library.oshi) {
+    const registered = new Set(library.sources.filter((s) => s.oshi_id === oshi.id).map((s) => normalize(s.url)));
+    for (const sns of oshi.sns) {
+      if (registered.has(normalize(sns.url))) continue;
+      registered.add(normalize(sns.url));
+      queue.push({ oshiId: oshi.id, name: oshi.name, platform: sns.platform, url: sns.url });
+    }
+  }
+
+  const started = Date.now();
+  let added = 0;
+  let linked = 0;
+  const failed: { name: string; url: string; error: string }[] = [];
+  let index = 0;
+  for (; index < queue.length; index++) {
+    if (Date.now() - started > 40_000) break;
+    const item = queue[index];
+    const result = await addSourceFor(viewer, { oshiId: item.oshiId, url: item.url, expected: item.platform });
+    if (result.ok) {
+      if (result.data?.note?.includes("リンクとして")) linked++;
+      else added++;
+    } else if (result.error !== "このアカウントは登録済みです") {
+      failed.push({ name: item.name, url: item.url, error: result.error });
+      // 上限に達したら、残りを試しても同じなので止める
+      if (result.error === RATE_LIMIT_ERROR || result.error.includes("件までです")) {
+        index++;
+        break;
+      }
+    }
+  }
+
+  revalidatePath("/app", "layout");
+  return { ok: true, data: { added, linked, failed, remaining: queue.length - index } };
 }
 
 export async function deleteSource(id: string): Promise<ActionResult> {

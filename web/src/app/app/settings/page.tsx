@@ -8,6 +8,8 @@ import { requireViewer } from "@/lib/auth";
 import { limitText, PLAN_LABEL } from "@/lib/plans";
 import { DEMO } from "@/lib/env";
 import { billingEnabled, proPriceLabel } from "@/lib/stripe";
+import { serverKeyCheck } from "@/lib/diagnostics";
+import { driveAccessToken, driveConfigured } from "@/lib/google-drive";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "設定" };
@@ -36,12 +38,26 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const [{ notice }, viewer] = await Promise.all([searchParams, requireViewer()]);
   const [price, subscription] = await Promise.all([DEMO ? null : proPriceLabel(), subscriptionInfo()]);
   const banner = notice ? NOTICES[notice] : undefined;
+  const keyCheck = !DEMO && viewer.plan === "master" ? await serverKeyCheck(viewer.id) : null;
+  const driveCheck = keyCheck
+    ? !driveConfigured()
+      ? "NG: GOOGLE_OAUTH_CLIENT_ID・GOOGLE_OAUTH_CLIENT_SECRET が設定されていません"
+      : (await driveAccessToken(await createClient(), viewer.id))
+        ? "OK: 今のアプリの Google ドライブ接続を使えます"
+        : "NG: 今のアプリで Google ドライブに接続していないか、接続が切れています"
+    : null;
   const isPro = viewer.plan === "paid";
 
   return (
     <div className="mx-auto max-w-[760px] space-y-5">
       <h1 className="text-xl leading-7 font-bold">設定</h1>
       {banner ? <Notice tone={banner.tone}>{banner.text}</Notice> : null}
+
+      <Section title="推しの登録" description="推しの追加・編集と、新着を取るSNSの登録。今のアプリ(推し活手帳)と共通です。">
+        <Link href="/app/manage" className={buttonClass("primary")}>
+          推しの登録を開く
+        </Link>
+      </Section>
 
       <Section title="表示" description="背景の明るさを切り替えます。選んだ設定はこの端末に保存されます。">
         <ThemeSwitch />
@@ -63,6 +79,21 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           </button>
         </form>
       </Section>
+
+      {keyCheck ? (
+        <Section title="サーバーの接続(マスターだけに表示)">
+          <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 text-sm">
+            <dt className="text-muted">鍵の種類</dt>
+            <dd className="[overflow-wrap:anywhere]">{keyCheck.kind}</dd>
+            <dt className="text-muted">書き込み</dt>
+            <dd className={`[overflow-wrap:anywhere] ${keyCheck.ok ? "text-ok" : "text-danger"}`}>
+              {keyCheck.ok ? "OK" : "NG"}: {keyCheck.detail}
+            </dd>
+            <dt className="text-muted">推しの写真</dt>
+            <dd className={`[overflow-wrap:anywhere] ${driveCheck?.startsWith("OK") ? "text-ok" : "text-danger"}`}>{driveCheck}</dd>
+          </dl>
+        </Section>
+      ) : null}
 
       <Section title="二段階認証">
         <MfaPanel enabled={viewer.hasMfa} isAdmin={viewer.role === "admin"} />

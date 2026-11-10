@@ -4,6 +4,9 @@ import { parseFeedXml } from "@/lib/fetchers/rss";
 import { isPublicAddress, safeFetchText } from "@/lib/fetchers/safe-fetch";
 import { embedHandle, parseAccountUrl } from "@/lib/platforms";
 import { recordsToLibrary } from "@/lib/records";
+import { editableFrom, emptySns, mergeIntoRecord, toStoredSns } from "@/lib/oshi-record";
+import { decodeEntities, hostOf } from "@/lib/text";
+import { channelFromPage } from "@/lib/fetchers/youtube";
 
 let failed = 0;
 function check(name: string, actual: unknown, expected: unknown) {
@@ -106,6 +109,40 @@ async function main() {
   check("javascript: は不可", pick("javascript:alert(1)"), "error");
   check("埋め込みハンドルの検証(不正)", embedHandle("x", '@a"onload=x'), null);
   check("埋め込みハンドルの検証(正常)", embedHandle("tiktok", "@some.user"), "some.user");
+
+  // --- 推しの記録の読み書き(今のアプリと共通) ---
+  check("SNS: URLをIDに", toStoredSns("x", "https://x.com/iON_kono_"), "iON_kono_");
+  check("SNS: @を外す", toStoredSns("instagram", "@utage.kotoha"), "utage.kotoha");
+  check("SNS: TikTok URL", toStoredSns("tiktok", "https://www.tiktok.com/@iON_idol_"), "iON_idol_");
+  check("SNS: YouTube チャンネル", toStoredSns("youtube", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv"), "UCabcdefghijklmnopqrstuv");
+  check("SNS: YouTube ハンドル", toStoredSns("youtube", "https://www.youtube.com/@yoruami"), "yoruami");
+  check("SNS: 公式HP", toStoredSns("web", "heroines.jp/profile"), "https://heroines.jp/profile");
+  const before = { id: "o1", name: "旧", photo: "gdrive:abc", gallery: ["gdrive:g1"], _order: 2, group: "旧G", sns_group_x: "old", groups: [{ id: "g1", name: "A", color: "#000000", extra: 1 }] };
+  const merged = mergeIntoRecord(before, {
+    id: "o1", name: " 新 ", color: "#EC6FA9", agency: "事務所", birthMonth: "1", birthDay: "6", birthYear: "",
+    person: { ...emptySns(), x: "@me" },
+    groups: [{ id: "g1", name: "A2", sns: { ...emptySns(), web: "https://a.example.com" } }, { name: "", sns: emptySns() }],
+  }, { id: "o1", order: 0 });
+  check("記録: 写真とギャラリーを残す", [merged.photo, merged.gallery, merged._order], ["gdrive:abc", ["gdrive:g1"], 2]);
+  check("記録: 名前と本人のSNS", [merged.name, merged.sns_person_x], ["新", "me"]);
+  check("記録: グループの他の項目を残し、空のグループは除く", (merged.groups as Record<string, unknown>[]).map((g) => [g.id, g.name, g.extra, g.color, g.sns_web]), [["g1", "A2", 1, "#EC6FA9", "https://a.example.com"]]);
+  check("記録: 古い形式のグループを空に", [merged.group, merged.sns_group_x], ["", ""]);
+  const editable = editableFrom("o1", merged);
+  check("記録: 編集画面に戻す", [editable.name, editable.person.x, editable.groups[0].name, editable.groups[0].sns.web], ["新", "me", "A2", "https://a.example.com"]);
+
+  // --- 見出しの文字参照 ---
+  check("文字参照を戻す", decodeEntities("&#8220;UTAGE FES&#8221;Vol.5 &amp; &#x2764; &amp;#8220;"), "\u201CUTAGE FES\u201DVol.5 & \u2764 \u201C");
+  check("不正な文字参照はそのまま", decodeEntities("&#0; &foo;"), "&#0; &foo;");
+  check("サイト名", hostOf("https://www.heroines.jp/profile/ion_idol"), "heroines.jp");
+
+  // --- YouTubeのチャンネルページからチャンネルIDを読む ---
+  check(
+    "チャンネルページ canonical",
+    channelFromPage('<meta property="og:title" content="うた &amp; りん"><link rel="canonical" href="https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv">'),
+    { channelId: "UCabcdefghijklmnopqrstuv", title: "うた & りん" },
+  );
+  check("チャンネルページ ページ内のID", channelFromPage('{"browseId":"UCabcdefghijklmnopqrstuv"}')?.channelId, "UCabcdefghijklmnopqrstuv");
+  check("チャンネルページ 見つからない", channelFromPage("<html></html>"), null);
 
   // --- 今のアプリの推しの記録の読み替え ---
   const lib = recordsToLibrary(

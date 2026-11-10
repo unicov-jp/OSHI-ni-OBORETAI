@@ -75,6 +75,16 @@ const SNS_PLATFORM: Record<SnsKey, Platform> = {
   tiktok: "tiktok",
 };
 
+// 写真の参照(gdrive:… / data:…)から短い版の文字列を作る。参照が変われば版も変わり、表示が新しくなる。
+function photoVersion(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  if (!value.startsWith("gdrive:") && !value.startsWith("data:image/")) return null;
+  let hash = 5381;
+  const sample = value.length > 4096 ? value.slice(0, 2048) + value.slice(-2048) + value.length : value;
+  for (let i = 0; i < sample.length; i++) hash = ((hash << 5) + hash + sample.charCodeAt(i)) >>> 0;
+  return hash.toString(36);
+}
+
 export const groupCategoryId = (name: string) => `group:${name}`;
 export const agencyCategoryId = (name: string) => `agency:${name}`;
 
@@ -133,6 +143,7 @@ export function recordsToLibrary(
       agency_id: agencyId,
       genre_id: null,
       last_seen_at: seen[row.id] ?? fallbackSeen,
+      photo: photoVersion(data.photo),
       sns,
     };
   });

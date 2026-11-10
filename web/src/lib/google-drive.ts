@@ -12,6 +12,11 @@ export function driveConfigured(): boolean {
   return Boolean(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET);
 }
 
+// アクセストークンが使えなかったとき(期限切れ・取り消し)に、覚えているトークンを捨てる
+export function forgetDriveToken(userId: string): void {
+  cache.delete(userId);
+}
+
 export async function driveAccessToken(supabase: SupabaseClient, userId: string): Promise<string | null> {
   if (!driveConfigured()) return null;
   const hit = cache.get(userId);

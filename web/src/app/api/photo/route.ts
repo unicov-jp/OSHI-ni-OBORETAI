@@ -2,7 +2,7 @@ import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { requireViewer } from "@/lib/auth";
 import { DEMO } from "@/lib/env";
-import { driveAccessToken, uploadPhotoToDrive } from "@/lib/google-drive";
+import { driveAccessToken, forgetDriveToken, uploadPhotoToDrive } from "@/lib/google-drive";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -10,7 +10,23 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const MAX_BYTES = 3 * 1024 * 1024;
+// 表示するときは、端末から撮ったままの大きな写真も返せるようにする
+const MAX_SHOW_BYTES = 12 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
+// 写真を返せなかった理由(画面には出さず、サーバーの記録と応答の見出しに残す)
+function missing(status: number, reason: string) {
+  console.warn(`[photo] ${status} ${reason}`);
+  return new NextResponse(null, { status, headers: { "X-Photo-Error": reason, "Cache-Control": "no-store" } });
+}
+
+async function fetchDrive(token: string, fileId: string) {
+  return await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(20_000),
+    cache: "no-store",
+  });
+}
 // ドライブに接続していないときは、今のアプリと同じく画像データのまま記録に入れる(今のアプリが後でドライブへ移す)
 const MAX_INLINE_BYTES = 600 * 1024;
 const MAX_FILES = 10;
@@ -57,32 +73,38 @@ export async function GET(request: Request) {
     .eq("id", id)
     .eq("deleted", false)
     .maybeSingle();
-  const value = (row?.data as Raw | null)?.[field];
+  if (!row) return missing(404, "record-not-found");
+  const value = (row.data as Raw | null)?.[field];
   const ref = Array.isArray(value) ? value[index] : index === 0 ? value : undefined;
-  if (typeof ref !== "string") return new NextResponse(null, { status: 404 });
+  if (typeof ref !== "string" || !ref) return missing(404, "no-photo");
 
   // 端末に保存していた頃の写真(data:image/...;base64,...)
-  const inline = /^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=]+)$/.exec(ref);
+  const inline = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(ref.trim());
   if (inline) {
-    const bytes = Buffer.from(inline[2], "base64");
-    if (bytes.byteLength > MAX_BYTES) return new NextResponse(null, { status: 413 });
-    return image(bytes, inline[1]);
+    const bytes = Buffer.from(inline[2].replace(/\s/g, ""), "base64");
+    if (bytes.byteLength > MAX_SHOW_BYTES) return missing(413, "inline-too-large");
+    return image(bytes, inline[1].toLowerCase());
   }
 
   // Google ドライブに保存した写真(gdrive:<ファイルID>)
-  const fileId = /^gdrive:([A-Za-z0-9_-]{10,200})$/.exec(ref)?.[1];
-  if (!fileId) return new NextResponse(null, { status: 404 });
-  const token = await driveAccessToken(supabase, user.id);
-  if (!token) return new NextResponse(null, { status: 404 });
-  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15_000),
-    cache: "no-store",
-  });
-  const type = (response.headers.get("content-type") ?? "").split(";")[0].trim();
-  if (!response.ok || !IMAGE_TYPES.includes(type)) return new NextResponse(null, { status: 404 });
+  const fileId = /^gdrive:([A-Za-z0-9_-]{10,200})$/.exec(ref.trim())?.[1];
+  if (!fileId) return missing(404, "unknown-ref");
+  let token = await driveAccessToken(supabase, user.id);
+  if (!token) return missing(404, "drive-not-connected");
+  let response = await fetchDrive(token, fileId).catch(() => null);
+  // トークンが使えなかったときは取り直して、もう1回だけ試す。通信の失敗も1回だけやり直す
+  if (!response || response.status === 401 || response.status >= 500) {
+    if (response?.status === 401) forgetDriveToken(user.id);
+    token = await driveAccessToken(supabase, user.id);
+    if (!token) return missing(404, "drive-not-connected");
+    response = await fetchDrive(token, fileId).catch(() => null);
+  }
+  if (!response) return missing(504, "drive-timeout");
+  if (!response.ok) return missing(response.status === 404 ? 404 : 502, `drive-${response.status}`);
+  const type = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (!type.startsWith("image/") || type === "image/svg+xml") return missing(415, `drive-type-${type || "none"}`);
   const bytes = await response.arrayBuffer();
-  if (bytes.byteLength > MAX_BYTES) return new NextResponse(null, { status: 413 });
+  if (bytes.byteLength > MAX_SHOW_BYTES) return missing(413, "drive-too-large");
   return image(bytes, type);
 }
 

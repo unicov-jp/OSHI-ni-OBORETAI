@@ -70,25 +70,32 @@ export function GalleryBody({ oshi, photos }: { oshi: Oshi; photos: GalleryPhoto
 
 function PhotoSlide({ photo, eager }: { photo: GalleryPhoto; eager: boolean }) {
   const [broken, setBroken] = useState(false);
+  // 読み込みに失敗したら、少し待って1回だけ読み直す(ドライブの応答が一時的に遅いことがあるため)
+  const [attempt, setAttempt] = useState(0);
+  const src = attempt === 0 ? photo.src : `${photo.src}&r=${attempt}`;
+  const onError = () => {
+    if (attempt === 0) setTimeout(() => setAttempt(1), 1500);
+    else setBroken(true);
+  };
   return (
     <div className="absolute inset-0 pt-[var(--bar)]">
       {broken ? (
         <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center text-sm text-white/60">
           <p>写真を読み込めませんでした。</p>
-          <p className="text-xs">Googleドライブに保存した写真は、ドライブとの接続が済むと表示されます。</p>
+          <p className="text-xs">Googleドライブで削除された写真や、今のアプリでドライブとの接続が切れているときは表示できません。</p>
         </div>
       ) : (
         <>
           {/* 背景: 同じ写真をぼかして敷く(写真の縦横比が画面と違っても余白を目立たせない) */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photo.src} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-50 blur-2xl" loading={eager ? "eager" : "lazy"} />
+          <img src={src} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-50 blur-2xl" loading={eager ? "eager" : "lazy"} />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={photo.src}
+            src={src}
             alt={photo.kind === "cheki" ? `${photo.title}のチェキ` : "ギャラリーの写真"}
             className="relative h-full w-full object-contain"
             loading={eager ? "eager" : "lazy"}
-            onError={() => setBroken(true)}
+            onError={onError}
           />
         </>
       )}

@@ -1,4 +1,5 @@
 import "server-only";
+import { decodeEntities } from "@/lib/text";
 import { XMLParser } from "fast-xml-parser";
 import { SafeFetchError, safeFetchText } from "@/lib/fetchers/safe-fetch";
 
@@ -40,7 +41,7 @@ function text(value: unknown): string {
 }
 
 function stripTags(value: string): string {
-  return value.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  return decodeEntities(value.replace(/<[^>]*>/g, "")).replace(/\s+/g, " ").trim();
 }
 
 function httpUrl(value: string, base?: string): string | null {

@@ -11,6 +11,7 @@ import {
 import { loadMore, markSeen } from "@/lib/actions/oshi";
 import { PLATFORM_LABEL, PLATFORM_ORDER, youtubeVideoId } from "@/lib/platforms";
 import { feedHref, VIEW_LABEL, VIEW_MODES, type Tab } from "@/lib/tabs";
+import { decodeEntities, hostOf } from "@/lib/text";
 import type { Oshi, Platform, Source, TimelineItem, ViewMode } from "@/lib/types";
 
 type Props = {
@@ -25,6 +26,8 @@ type Props = {
 };
 
 const EMBED_PLATFORMS: Platform[] = ["x", "instagram", "tiktok"];
+
+type Card = { item: TimelineItem; owners: Oshi[] };
 
 function waterline(colors: string[]): CSSProperties {
   const list = colors.length > 0 ? colors : ["var(--line)"];
@@ -55,7 +58,7 @@ function Unread({ count }: { count: number }) {
 export function FeedView({ view, tabs, activeTab, platform, oshi, sources, items: initialItems, pageSize }: Props) {
   const [items, setItems] = useState(initialItems);
   const [hasMore, setHasMore] = useState(initialItems.length >= pageSize);
-  const [detail, setDetail] = useState<TimelineItem | null>(null);
+  const [detail, setDetail] = useState<Card | null>(null);
   const [embedLimit, setEmbedLimit] = useState(4);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -122,6 +125,21 @@ export function FeedView({ view, tabs, activeTab, platform, oshi, sources, items
       setHasMore(next.length >= pageSize);
     });
   };
+
+  // 同じ取得元を複数の推しに登録していると同じ項目が推しの数だけ届くので、1枚にまとめて推しを並べる
+  const cards = useMemo(() => {
+    const byId = new Map<string, Card>();
+    for (const item of items) {
+      const owner = oshiById.get(item.oshi_id);
+      const card = byId.get(item.item_id);
+      if (card) {
+        if (owner && !card.owners.some((o) => o.id === owner.id)) card.owners.push(owner);
+      } else {
+        byId.set(item.item_id, { item, owners: owner ? [owner] : [] });
+      }
+    }
+    return [...byId.values()];
+  }, [items, oshiById]);
 
   const isEmbedView = EMBED_PLATFORMS.includes(platform as Platform);
   const isLinkView = platform === "link" || platform === "threads";
@@ -236,9 +254,12 @@ export function FeedView({ view, tabs, activeTab, platform, oshi, sources, items
             </>
           ) : (
             <>
-              {platform === "all" || isLinkView ? (
+              {isLinkView ? (
+                <LinkGrid sources={visibleSources} oshiById={oshiById} />
+              ) : null}
+              {platform === "all" ? (
                 <AccountStrip
-                  sources={isLinkView ? visibleSources : tabSources}
+                  sources={tabSources}
                   oshiById={oshiById}
                   showOshi={!single}
                   view={view}
@@ -254,12 +275,12 @@ export function FeedView({ view, tabs, activeTab, platform, oshi, sources, items
                   />
                 ) : (
                   <div className="card-grid">
-                    {items.map((item) => (
+                    {cards.map((card) => (
                       <ItemCard
-                        key={`${item.item_id}-${item.oshi_id}`}
-                        item={item}
-                        oshi={oshiById.get(item.oshi_id)}
-                        onOpen={() => setDetail(item)}
+                        key={card.item.item_id}
+                        item={card.item}
+                        owners={card.owners}
+                        onOpen={() => setDetail(card)}
                       />
                     ))}
                   </div>
@@ -279,7 +300,7 @@ export function FeedView({ view, tabs, activeTab, platform, oshi, sources, items
         </div>
       </main>
 
-      <ItemDialog item={detail} oshi={detail ? oshiById.get(detail.oshi_id) : undefined} onClose={() => setDetail(null)} />
+      <ItemDialog card={detail} onClose={() => setDetail(null)} />
     </div>
   );
 }
@@ -331,8 +352,10 @@ function AccountStrip({
 }
 
 // 新着1件。カードの高さは固定で、見出しは2行で省略する。押すと全文を表示する。
-function ItemCard({ item, oshi, onOpen }: { item: TimelineItem; oshi?: Oshi; onOpen: () => void }) {
-  const isNew = oshi ? item.published_at > oshi.last_seen_at : false;
+function ItemCard({ item, owners, onOpen }: { item: TimelineItem; owners: Oshi[]; onOpen: () => void }) {
+  const first = owners[0];
+  const isNew = owners.some((o) => item.published_at > o.last_seen_at);
+  const names = owners.map((o) => o.name).join("・");
   return (
     <button
       type="button"
@@ -355,7 +378,7 @@ function ItemCard({ item, oshi, onOpen }: { item: TimelineItem; oshi?: Oshi; onO
           <span
             className="flex h-full w-full items-center justify-center text-lg font-bold text-muted/70"
             style={{
-              background: `linear-gradient(160deg, color-mix(in srgb, ${oshi?.color ?? "transparent"} 22%, transparent), transparent 70%)`,
+              background: `linear-gradient(160deg, color-mix(in srgb, ${first?.color ?? "transparent"} 22%, transparent), transparent 70%)`,
             }}
           >
             {PLATFORM_LABEL[item.platform]}
@@ -368,10 +391,14 @@ function ItemCard({ item, oshi, onOpen }: { item: TimelineItem; oshi?: Oshi; onO
         ) : null}
       </span>
       <span className="flex h-[92px] w-full shrink-0 flex-col justify-between p-3">
-        <Clamp lines={2} className="text-sm leading-5 font-medium">{item.title}</Clamp>
+        <Clamp lines={2} className="text-sm leading-5 font-medium">{decodeEntities(item.title)}</Clamp>
         <span className="flex items-center gap-2 text-xs text-muted">
-          <Light color={oshi?.color ?? "var(--line)"} className="h-3 w-3" />
-          <Clamp className="flex-1">{oshi?.name ?? ""}</Clamp>
+          <span className="flex shrink-0 gap-[2px]">
+            {(owners.length > 0 ? owners.slice(0, 3) : [undefined]).map((o, i) => (
+              <Light key={o?.id ?? i} color={o?.color ?? "var(--line)"} className="h-3 w-3" />
+            ))}
+          </span>
+          <Clamp className="flex-1">{names}</Clamp>
           <time dateTime={item.published_at} className="num shrink-0" suppressHydrationWarning>
             {formatRelative(item.published_at)}
           </time>
@@ -381,13 +408,46 @@ function ItemCard({ item, oshi, onOpen }: { item: TimelineItem; oshi?: Oshi; onO
   );
 }
 
-function ItemDialog({ item, oshi, onClose }: { item: TimelineItem | null; oshi?: Oshi; onClose: () => void }) {
+// リンクとして保存したアカウント(Threads・公式サイトなど)。押すと新しいタブで開く。
+function LinkGrid({ sources, oshiById }: { sources: Source[]; oshiById: Map<string, Oshi> }) {
+  if (sources.length === 0) return null;
+  return (
+    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))" }}>
+      {sources.map((source) => {
+        const owner = oshiById.get(source.oshi_id);
+        return (
+          <a
+            key={source.id}
+            href={source.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={source.url}
+            className="flex h-[76px] min-w-0 items-center gap-3 rounded-xl border border-line bg-surface px-4 hover:bg-sunken"
+          >
+            <Light color={owner?.color ?? "var(--line)"} className="h-10 w-[5px]" />
+            <span className="min-w-0 flex-1">
+              <span className="clamp-1 block text-[15px] font-semibold">{source.label || hostOf(source.url)}</span>
+              <span className="clamp-1 block text-xs text-muted">
+                {owner?.name ?? ""}・{PLATFORM_LABEL[source.platform]}
+              </span>
+            </span>
+            <span className="shrink-0 text-[13px] font-medium text-muted">開く</span>
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+function ItemDialog({ card, onClose }: { card: Card | null; onClose: () => void }) {
+  const item = card?.item ?? null;
+  const title = item ? decodeEntities(item.title) : "";
   const videoId = item && item.platform === "youtube" ? youtubeVideoId(item.url) : null;
   return (
     <Dialog
       open={item !== null}
       onClose={onClose}
-      title={oshi?.name ?? "詳細"}
+      title={card && card.owners.length > 0 ? card.owners.map((o) => o.name).join("・") : "詳細"}
       wide
       footer={
         item ? (
@@ -402,7 +462,7 @@ function ItemDialog({ item, oshi, onClose }: { item: TimelineItem | null; oshi?:
           {videoId ? (
             <div className="aspect-video w-full overflow-hidden rounded-lg bg-sunken">
               <iframe
-                title={item.title}
+                title={title}
                 src={`https://www.youtube-nocookie.com/embed/${videoId}`}
                 allow="encrypted-media; picture-in-picture; fullscreen"
                 referrerPolicy="strict-origin-when-cross-origin"
@@ -410,7 +470,7 @@ function ItemDialog({ item, oshi, onClose }: { item: TimelineItem | null; oshi?:
               />
             </div>
           ) : null}
-          <p className="text-base leading-7 font-semibold [overflow-wrap:anywhere]">{item.title}</p>
+          <p className="text-base leading-7 font-semibold [overflow-wrap:anywhere]">{title}</p>
           <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted">
             <PlatformTag platform={item.platform} />
             <time dateTime={item.published_at}>{formatDateTime(item.published_at)}</time>

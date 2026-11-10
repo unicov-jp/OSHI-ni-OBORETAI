@@ -4,6 +4,7 @@ import { parseFeedXml } from "@/lib/fetchers/rss";
 import { isPublicAddress, safeFetchText } from "@/lib/fetchers/safe-fetch";
 import { embedHandle, parseAccountUrl } from "@/lib/platforms";
 import { recordsToLibrary } from "@/lib/records";
+import { decodeEntities, hostOf } from "@/lib/text";
 import { channelFromPage } from "@/lib/fetchers/youtube";
 
 let failed = 0;
@@ -107,6 +108,11 @@ async function main() {
   check("javascript: は不可", pick("javascript:alert(1)"), "error");
   check("埋め込みハンドルの検証(不正)", embedHandle("x", '@a"onload=x'), null);
   check("埋め込みハンドルの検証(正常)", embedHandle("tiktok", "@some.user"), "some.user");
+
+  // --- 見出しの文字参照 ---
+  check("文字参照を戻す", decodeEntities("&#8220;UTAGE FES&#8221;Vol.5 &amp; &#x2764; &amp;#8220;"), "\u201CUTAGE FES\u201DVol.5 & \u2764 \u201C");
+  check("不正な文字参照はそのまま", decodeEntities("&#0; &foo;"), "&#0; &foo;");
+  check("サイト名", hostOf("https://www.heroines.jp/profile/ion_idol"), "heroines.jp");
 
   // --- YouTubeのチャンネルページからチャンネルIDを読む ---
   check(

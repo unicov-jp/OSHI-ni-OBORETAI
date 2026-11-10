@@ -6,6 +6,7 @@ import { embedHandle, parseAccountUrl } from "@/lib/platforms";
 import { recordsToLibrary } from "@/lib/records";
 import { mediaFromPostEmbed, postCodesFromEmbed } from "@/lib/fetchers/instagram";
 import { postsFromSyndication } from "@/lib/fetchers/x";
+import { videosFromEmbed } from "@/lib/fetchers/tiktok";
 import { editableFrom, emptySns, mergeIntoRecord, toStoredSns } from "@/lib/oshi-record";
 import { decodeEntities, hostOf } from "@/lib/text";
 import { channelFromPage } from "@/lib/fetchers/youtube";
@@ -143,6 +144,14 @@ async function main() {
     ["1855000000000000222", "1855000000000000111"],
   );
   check("X 投稿なし", postsFromSyndication("<html></html>"), []);
+
+  // --- TikTok の動画の番号を読む ---
+  check(
+    "TikTok 動画(videoList)",
+    videosFromEmbed('{"user":{"id":"6800000000000000001"},"videoList":[{"id":"7400000000000000001","createTime":"1767225600"},{"id":"7400000000000000002","createTime":1767139200}]}').map((v) => v.id),
+    ["7400000000000000001", "7400000000000000002"],
+  );
+  check("TikTok 動画なし", videosFromEmbed("<html></html>"), []);
 
   // --- 推しの記録の読み書き(今のアプリと共通) ---
   check("SNS: URLをIDに", toStoredSns("x", "https://x.com/iON_kono_"), "iON_kono_");

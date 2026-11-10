@@ -4,6 +4,7 @@ import { SwipeFeed } from "@/components/swipe-feed";
 import { EmptyState, buttonClass } from "@/components/ui";
 import { getLibrary, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
 import { instagramPostCodes } from "@/lib/fetchers/instagram";
+import { tiktokVideos } from "@/lib/fetchers/tiktok";
 import { xPosts } from "@/lib/fetchers/x";
 
 export const metadata: Metadata = { title: "新着" };
@@ -33,8 +34,8 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
   const sources = library.sources.filter((s) => s.oshi_id === active.id);
   const handleOf = (handle: string) => handle.replace(/^@/, "");
 
-  // Instagram は投稿1件ずつ、X は最新の投稿の番号と日時を読む(読めなければアカウントの表示)
-  const [items, instagram, x] = await Promise.all([
+  // Instagram・X・TikTok は投稿1件ずつ見せるため、最新の投稿を読む(読めなければアカウントの表示)
+  const [items, instagram, x, tiktok] = await Promise.all([
     getTimeline({ oshiIds: [active.id] }),
     Promise.all(
       sources
@@ -43,6 +44,11 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     ).then((pairs) => Object.fromEntries(pairs)),
     Promise.all(
       sources.filter((s) => s.platform === "x").map(async (s) => [s.id, await xPosts(handleOf(s.handle))] as const),
+    ).then((pairs) => Object.fromEntries(pairs)),
+    Promise.all(
+      sources
+        .filter((s) => s.platform === "tiktok")
+        .map(async (s) => [s.id, await tiktokVideos(handleOf(s.handle))] as const),
     ).then((pairs) => Object.fromEntries(pairs)),
   ]);
 
@@ -56,6 +62,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
       sources={sources}
       instagram={instagram}
       x={x}
+      tiktok={tiktok}
       items={items}
       pageSize={PAGE_SIZE}
     />

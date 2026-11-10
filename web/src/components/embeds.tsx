@@ -143,9 +143,10 @@ function TikTokCreator({ handle, url }: { handle: string; url: string }) {
 }
 
 // X の投稿1件(公式の投稿埋め込み。ログインしていなくても表示される)
-export function XPostEmbed({ id, url }: { id: string; url: string }) {
+export function XPostEmbed({ id, url, theme: forced }: { id: string; url: string; theme?: "light" | "dark" }) {
   const ref = useRef<HTMLDivElement>(null);
-  const theme = useTheme();
+  const appTheme = useTheme();
+  const theme = forced ?? appTheme;
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {

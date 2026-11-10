@@ -24,6 +24,8 @@ type Props = {
   instagram: Record<string, string[]>;
   // X のアカウントごとの最新の投稿(番号と日時。読めなかったアカウントは空)
   x: Record<string, { id: string; at: string }[]>;
+  // TikTok のアカウントごとの最新の動画(番号と日時。日時は読めないこともある)
+  tiktok: Record<string, { id: string; at: string | null }[]>;
   items: TimelineItem[];
   pageSize: number;
 };
@@ -36,11 +38,12 @@ type Slide =
   | { kind: "item"; key: string; item: TimelineItem; from: string }
   | { kind: "embed"; key: string; source: Source; from: string }
   | { kind: "insta"; key: string; source: Source; from: string; code: string }
-  | { kind: "tweet"; key: string; source: Source; from: string; id: string; at: string };
+  | { kind: "tweet"; key: string; source: Source; from: string; id: string; at: string }
+  | { kind: "tiktok"; key: string; source: Source; from: string; id: string; at: string | null };
 
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
-export function SwipeFeed({ oshi, active, unread, sources, instagram, x, items: initialItems, pageSize }: Props) {
+export function SwipeFeed({ oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize }: Props) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [hasMore, setHasMore] = useState(initialItems.length >= pageSize);
@@ -51,6 +54,12 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, x, items: 
   const [refreshing, setRefreshing] = useState(false);
   const [pending, startTransition] = useTransition();
   const scroller = useRef<HTMLDivElement>(null);
+  const activeTab = useRef<HTMLAnchorElement>(null);
+
+  // 推しを選び直すと画面が作り直されて上の並びが左端に戻るので、選んだ推しを真ん中あたりに戻す
+  useEffect(() => {
+    activeTab.current?.scrollIntoView({ inline: "center", block: "nearest", behavior: "instant" as ScrollBehavior });
+  }, []);
 
   // 登録したアカウントが「本人」か「どのグループ」のものか(今のアプリの登録から分かる)
   const fromOf = useMemo(() => {
@@ -81,14 +90,26 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, x, items: 
         });
       }
     }
+    // TikTok の動画も、日時が分かるものは日時の順に混ぜる
+    const undated: Slide[] = [];
+    for (const source of sources.filter((s) => s.platform === "tiktok")) {
+      for (const video of tiktok[source.id] ?? []) {
+        if (seen.has(`tt-${video.id}`)) continue;
+        seen.add(`tt-${video.id}`);
+        const slide: Slide = { kind: "tiktok", key: `v-${video.id}`, source, from: fromOf.get(source.id) ?? "", id: video.id, at: video.at };
+        if (video.at) dated.push({ at: video.at, slide });
+        else undated.push(slide);
+      }
+    }
     const cards = dated.sort((a, b) => (a.at < b.at ? 1 : -1)).map((d) => d.slide);
     // Instagram は投稿1件ずつ(読めたとき)。X・TikTok と、投稿を読めなかった Instagram はアカウントの表示
-    const embeds: Slide[] = [];
+    const embeds: Slide[] = [...undated];
     for (const source of sources.filter((s) => EMBED_PLATFORMS.includes(s.platform))) {
       const from = fromOf.get(source.id) ?? "";
       const codes = source.platform === "instagram" ? (instagram[source.id] ?? []) : [];
       // 投稿を読めた X は、上で日時の順に混ぜてあるのでアカウントの表示は出さない
       if (source.platform === "x" && (x[source.id] ?? []).length > 0) continue;
+      if (source.platform === "tiktok" && (tiktok[source.id] ?? []).length > 0) continue;
       if (codes.length > 0) {
         for (const code of codes) embeds.push({ kind: "insta", key: `p-${source.id}-${code}`, source, from, code });
       } else {
@@ -103,7 +124,7 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, x, items: 
     });
     while (e < embeds.length) result.push(embeds[e++]);
     return result;
-  }, [items, sources, fromOf, instagram, x]);
+  }, [items, sources, fromOf, instagram, x, tiktok]);
 
   // 画面に出ている1枚を調べる
   useEffect(() => {
@@ -202,6 +223,7 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, x, items: 
               key={o.id}
               href={`/app?tab=${encodeURIComponent(o.id)}`}
               replace
+              ref={on ? activeTab : undefined}
               aria-current={on ? "page" : undefined}
               aria-label={o.name}
               title={o.name}
@@ -257,6 +279,17 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, x, items: 
                   oshi={active}
                   live={i === current}
                   near={Math.abs(i - current) <= 1}
+                  muted={muted}
+                  onToggleSound={() => setMuted((m) => !m)}
+                />
+              ) : slide.kind === "tiktok" ? (
+                <TikTokSlide
+                  source={slide.source}
+                  id={slide.id}
+                  at={slide.at}
+                  from={slide.from}
+                  oshi={active}
+                  live={i === current}
                   muted={muted}
                   onToggleSound={() => setMuted((m) => !m)}
                 />
@@ -396,12 +429,10 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
           href={item.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="absolute inset-x-4 top-24 right-20 z-[6] block rounded-2xl bg-[#fffdf8] p-6 text-[#2b2420] shadow-2xl"
+          className="absolute inset-x-0 top-16 bottom-0 z-[6] flex flex-col justify-center px-6 pr-20 pb-44"
         >
-          <p className="truncate text-[11px] font-extrabold tracking-wide" style={{ color: oshi.color }}>
-            BLOG ・ {hostOf(item.url)}
-          </p>
-          <p className="mt-3 line-clamp-6 text-xl leading-8 font-black">{title}</p>
+          <p className="truncate text-xs font-extrabold tracking-wide text-white/80">BLOG ・ {hostOf(item.url)}</p>
+          <p className="mt-4 line-clamp-[8] text-[26px] leading-[1.45] font-black [text-shadow:0_2px_12px_rgba(0,0,0,.35)]">{title}</p>
         </a>
         <SideActions oshi={oshi} url={item.url} title={title} />
         <Info platform="Blog" oshi={oshi} from={from} time={time} isNew={isNew} />
@@ -469,7 +500,7 @@ function EmbedSlide({ source, from, oshi, live }: { source: Source; from: string
   return (
     <>
       <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 70% 10%, ${oshi.color}88, #000 70%)` }} />
-      <div className="absolute inset-x-3 top-20 right-20 bottom-36 overflow-hidden rounded-2xl bg-white text-black">
+      <div className="absolute inset-x-0 top-16 bottom-0 overflow-hidden bg-white text-black">
         {live ? (
           <EmbedCard source={source} oshiName={oshi.name} fill autoLoad />
         ) : (
@@ -531,7 +562,7 @@ function InstaSlide({ source, code, from, oshi, near }: { source: Source; code: 
             alt={`${oshi.name}のInstagramの投稿`}
             referrerPolicy="no-referrer"
             onError={() => setBroken(true)}
-            className="absolute inset-x-0 top-16 bottom-28 m-auto max-h-[calc(100%-11rem)] w-full object-contain"
+            className="absolute inset-x-0 top-16 bottom-0 h-[calc(100%-4rem)] w-full object-contain"
           />
           {media?.video ? (
             <a
@@ -548,7 +579,7 @@ function InstaSlide({ source, code, from, oshi, near }: { source: Source; code: 
       ) : (
         <>
           <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 70% 10%, ${oshi.color}88, #000 70%)` }} />
-          <div className="absolute inset-x-3 top-20 right-20 bottom-32 overflow-hidden rounded-2xl bg-white">
+          <div className="absolute inset-x-0 top-16 bottom-0 overflow-hidden bg-white">
             {near && media ? (
               <InstagramPost code={code} title={`${oshi.name}のInstagramの投稿`} />
             ) : (
@@ -573,11 +604,61 @@ function TweetSlide({ source, id, at, from, oshi, near }: {
   return (
     <>
       <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 70% 10%, ${oshi.color}88, #000 70%)` }} />
-      <div className="absolute inset-x-3 top-20 right-20 bottom-32 overflow-hidden rounded-2xl bg-white">
-        {near ? <XPostEmbed id={id} url={url} /> : <div className="flex h-full items-center justify-center text-sm text-black/50">X</div>}
+      <div className="absolute inset-x-0 top-16 bottom-0 overflow-hidden bg-black pb-40">
+        {near ? <XPostEmbed id={id} url={url} theme="dark" /> : <div className="flex h-full items-center justify-center text-sm text-white/50">X</div>}
       </div>
+      {/* 投稿の上の透明な層: 上下のスワイプを受け取る(開くのは右の「開く」から) */}
+      <div className="absolute inset-0 z-[5]" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent" />
       <SideActions oshi={oshi} url={url} title={`${oshi.name}のXの投稿`} />
       <Info platform="X" oshi={oshi} from={from} time={formatRelative(at)} title={`X @${handle}`} isNew={at > oshi.last_seen_at} />
+    </>
+  );
+}
+
+// TikTok の動画1本。TikTok 公式の動画プレーヤーを全画面で出す。画面に出ている1本だけ読み込み、自動で再生する。
+// タップで音のオン・オフ(プレーヤーに命令を送る)
+function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }: {
+  source: Source; id: string; at: string | null; from: string; oshi: Oshi; live: boolean; muted: boolean; onToggleSound: () => void;
+}) {
+  const handle = source.handle.replace(/^@/, "");
+  const url = `https://www.tiktok.com/@${handle}/video/${id}`;
+  const frame = useRef<HTMLIFrameElement>(null);
+  const send = useCallback((type: string) => {
+    frame.current?.contentWindow?.postMessage({ "x-tiktok-player": true, type }, "*");
+  }, []);
+  useEffect(() => {
+    if (live) send(muted ? "mute" : "unMute");
+  }, [muted, live, send]);
+  const src =
+    `https://www.tiktok.com/player/v1/${id}?autoplay=1&loop=1&music_info=0&description=0&rel=0` +
+    `&controls=1&progress_bar=1&play_button=0&volume_control=0&fullscreen_button=0&timestamp=0` +
+    `&native_context_menu=0&closed_caption=0`;
+  return (
+    <>
+      <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 50% 20%, ${oshi.color}66, #000 70%)` }} />
+      <div className="absolute inset-x-0 top-16 bottom-0 flex items-center justify-center">
+        <div className="relative aspect-[9/16] h-full max-w-full">
+          {live ? (
+            <iframe
+              ref={frame}
+              title={`${oshi.name}のTikTok`}
+              src={src}
+              allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+              referrerPolicy="strict-origin-when-cross-origin"
+              onLoad={() => {
+                for (const wait of [300, 1200]) setTimeout(() => send(muted ? "mute" : "unMute"), wait);
+              }}
+              className="absolute inset-0 h-full w-full border-0"
+            />
+          ) : null}
+        </div>
+      </div>
+      {/* 動画の上の透明な層: 上下のスワイプを受け取り、タップで音を切り替える */}
+      <button type="button" aria-label={muted ? "音を出す" : "音を消す"} onClick={onToggleSound} className="absolute inset-0 z-[5] cursor-pointer" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent" />
+      <SideActions oshi={oshi} url={url} title={`${oshi.name}のTikTok`} />
+      <Info platform="TikTok" oshi={oshi} from={from} time={at ? formatRelative(at) : ""} title={`TikTok @${handle}`} isNew={at ? at > oshi.last_seen_at : false} />
     </>
   );
 }

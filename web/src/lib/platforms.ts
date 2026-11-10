@@ -11,10 +11,11 @@ export const PLATFORM_LABEL: Record<Platform, string> = {
   fantia: "Fantia",
   myfans: "myfans",
   xfans: "xfans",
+  fanza: "FANZA",
 };
 
 // Advanced プランだけが登録できるサービス
-export const ADVANCED_PLATFORMS: Platform[] = ["fantia", "myfans", "xfans"];
+export const ADVANCED_PLATFORMS: Platform[] = ["fantia", "myfans", "xfans", "fanza"];
 
 // ロゴの代わりに使う短い記号(各社のロゴ画像は使わない)
 export const PLATFORM_MARK: Record<Platform, string> = {
@@ -28,6 +29,7 @@ export const PLATFORM_MARK: Record<Platform, string> = {
   fantia: "Fa",
   myfans: "mf",
   xfans: "xf",
+  fanza: "FZ",
 };
 
 export const PLATFORM_EXAMPLE: Record<Platform, string> = {
@@ -41,9 +43,10 @@ export const PLATFORM_EXAMPLE: Record<Platform, string> = {
   fantia: "https://fantia.jp/fanclubs/12345",
   myfans: "https://myfans.jp/handle",
   xfans: "https://www.xfans.tokyo/handle",
+  fanza: "https://www.dmm.co.jp/digital/videoa/-/list/=/article=actress/id=12345/",
 };
 
-export const PLATFORM_ORDER: Platform[] = ["youtube", "blog", "x", "instagram", "threads", "tiktok", "fantia", "myfans", "xfans", "link"];
+export const PLATFORM_ORDER: Platform[] = ["youtube", "blog", "x", "instagram", "threads", "tiktok", "fantia", "myfans", "xfans", "fanza", "link"];
 
 // 各サービスの表示名の横に置く短い説明。利用者が「何がどう表示されるか」を登録前に分かるようにする。
 export const PLATFORM_HOW: Record<Platform, string> = {
@@ -57,6 +60,7 @@ export const PLATFORM_HOW: Record<Platform, string> = {
   fantia: "ファンクラブへのリンクとして保存します",
   myfans: "プロフィールへのリンクとして保存します",
   xfans: "プロフィールへのリンクとして保存します",
+  fanza: "作品一覧・女優ページへのリンクとして保存します",
 };
 
 export type ParsedAccount = {
@@ -195,6 +199,18 @@ export function parseAccountUrl(input: string): ParsedAccount | { error: string 
       return { error: "xfansはプロフィールのアドレスを入力してください(例: https://www.xfans.tokyo/handle)" };
     }
     return { platform: "xfans", mode: "link", url: `https://www.xfans.tokyo/${handle}`, handle: `@${handle}` };
+  }
+  // FANZA(DMM)。女優・作品一覧などのページをそのまま保存する(トップページは推しのページではないので受け付けない)
+  if (h === "fanza.jp" || h.endsWith(".fanza.jp") || h === "dmm.co.jp" || h.endsWith(".dmm.co.jp")) {
+    const path = url.pathname.replace(/\/+$/, "");
+    if (!path || path === "/top" || segments.length === 0) {
+      return { error: "FANZAは推しの女優ページや作品一覧のアドレスを入力してください(トップページは登録できません)" };
+    }
+    const saved = `https://${url.hostname.toLowerCase()}${url.pathname}${url.search}`;
+    if (saved.length > 300) return { error: "FANZAのアドレスが長すぎます" };
+    const actress = /(?:^|\/)id=(\d{1,12})(?:\/|$)/.exec(url.pathname)?.[1] ?? url.searchParams.get("actress") ?? "";
+    const handle = /^\d{1,12}$/.test(actress) ? `actress/${actress}` : (segments[segments.length - 1] ?? "").slice(0, 60);
+    return { platform: "fanza", mode: "link", url: saved, handle };
   }
 
   // それ以外はBlog候補。フィード(RSS/Atom)が見つかれば自動取得、なければリンクとして保存する。

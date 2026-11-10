@@ -1,8 +1,8 @@
-export type Platform = "youtube" | "blog" | "x" | "instagram" | "threads" | "tiktok" | "link" | "fantia" | "myfans" | "xfans";
+export type Platform = "youtube" | "blog" | "x" | "instagram" | "threads" | "tiktok" | "link" | "fantia" | "myfans" | "xfans" | "fanza";
 export type SourceMode = "feed" | "embed" | "link";
 export type CategoryKind = "group" | "agency" | "genre";
 export type ViewMode = "oshi" | CategoryKind;
-// advanced: 有料の機能に加えて、Fantia・myfans・xfans を登録できる
+// advanced: 有料の機能に加えて、Fantia・myfans・xfans・FANZA を登録できる
 export type Plan = "free" | "paid" | "advanced" | "master";
 
 export type Category = {

@@ -250,6 +250,7 @@ function snsKeyOf(url: string): SnsKey {
   if (host === "fantia.jp") return "fantia";
   if (host === "myfans.jp") return "myfans";
   if (host === "xfans.tokyo") return "xfans";
+  if (host === "fanza.jp" || host.endsWith(".fanza.jp") || host === "dmm.co.jp" || host.endsWith(".dmm.co.jp")) return "fanza";
   return "web";
 }
 

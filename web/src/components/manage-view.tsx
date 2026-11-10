@@ -435,7 +435,7 @@ function SnsEditor({ oshi, sources, disabled, scope }: { oshi: Oshi; sources: So
 
 type SnsRow = { key: string; platform: Platform; url: string; name: string; source?: Source };
 
-const PLATFORM_ORDER: Platform[] = ["x", "instagram", "tiktok", "youtube", "threads", "blog", "fantia", "myfans", "xfans", "link"];
+const PLATFORM_ORDER: Platform[] = ["x", "instagram", "tiktok", "youtube", "threads", "blog", "fantia", "myfans", "xfans", "fanza", "link"];
 
 // 表示名: @ハンドルがあればそれ、YouTube のチャンネルID(UC...)のような読めないものはサービス名にする
 function displayName(platform: Platform, url: string, source?: Source): string {

@@ -751,7 +751,7 @@ begin
   loop
     execute format('alter table public.oshikatsu_plan_names drop constraint %I', c);
   end loop;
-  -- SNSの種類に Fantia・myfans・xfans を足す
+  -- SNSの種類に Fantia・myfans・xfans・FANZA を足す
   for c in select conname from pg_constraint
     where conrelid = 'public.oshikatsu_sources'::regclass and contype = 'c' and pg_get_constraintdef(oid) ilike '%platform%'
   loop
@@ -764,7 +764,7 @@ alter table public.oshikatsu_plan_names
   add constraint oshikatsu_plan_names_plan_check check (plan in ('master', 'advanced', 'paid', 'free'));
 alter table public.oshikatsu_sources
   add constraint oshikatsu_sources_platform_check
-  check (platform in ('youtube', 'blog', 'x', 'instagram', 'threads', 'tiktok', 'link', 'fantia', 'myfans', 'xfans'));
+  check (platform in ('youtube', 'blog', 'x', 'instagram', 'threads', 'tiktok', 'link', 'fantia', 'myfans', 'xfans', 'fanza'));
 
 -- プラン名の変更: Starter → Pro、Advanced → Sensitive(管理画面で別の名前にしていれば、その名前のまま)
 update public.oshikatsu_plan_names set label = 'Pro', updated_at = now() where plan = 'paid' and label = 'Starter';

@@ -17,7 +17,7 @@ type RawOshi = {
 export type OshiRecord = { id: string; data: RawOshi | null };
 
 const DEFAULT_COLOR = "#C9457A";
-const SNS_KEYS = ["youtube", "web", "x", "instagram", "tiktok", "threads", "fantia", "myfans", "xfans"] as const;
+const SNS_KEYS = ["youtube", "web", "x", "instagram", "tiktok", "threads", "fantia", "myfans", "xfans", "fanza"] as const;
 type SnsKey = (typeof SNS_KEYS)[number];
 
 const text = (value: unknown, max = 100): string => (typeof value === "string" ? value.trim().slice(0, max) : "");
@@ -55,6 +55,7 @@ function snsUrl(key: SnsKey, stored: string): string {
     case "fantia":
     case "myfans":
     case "xfans":
+    case "fanza":
       return /^[\w.-]+\.[a-z]{2,}/i.test(value) ? `https://${value}` : "";
     case "threads":
       return `https://www.threads.com/@${encodeURIComponent(id)}`;
@@ -82,6 +83,7 @@ const SNS_PLATFORM: Record<SnsKey, Platform> = {
   fantia: "fantia",
   myfans: "myfans",
   xfans: "xfans",
+  fanza: "fanza",
 };
 
 // 写真の参照(gdrive:… / data:…)から短い版の文字列を作る。参照が変われば版も変わり、表示が新しくなる。

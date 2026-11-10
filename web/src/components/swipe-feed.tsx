@@ -59,7 +59,7 @@ function tabHref(id: string, view: FeedView): string {
 
 const EMBED_PLATFORMS: Platform[] = ["x", "instagram", "tiktok"];
 // 中身を読み込めない(読み込まない)サービス: 推しのページへ移るカードを1枚はさむ
-const LINK_PLATFORMS: Platform[] = ["threads", "fantia", "myfans", "xfans"];
+const LINK_PLATFORMS: Platform[] = ["threads", "fantia", "myfans", "xfans", "fanza"];
 
 // 縦長の動画(ショート・TikTok)の枠。画面に収まる中でいちばん大きく出す(見切れないよう、はみ出させない)
 const VERTICAL_FRAME = {
@@ -326,7 +326,7 @@ export function SwipeFeed({
       if ((index + 1) % EMBED_EVERY === 0 && e < embeds.length) result.push(embeds[e++]);
     });
     while (e < embeds.length) result.push(embeds[e++]);
-    // Threads・Fantia・myfans・xfans は、推しのページへ移るカードとして最後に並べる
+    // Threads・Fantia・myfans・xfans・FANZA は、推しのページへ移るカードとして最後に並べる
     for (const source of sources.filter((s) => LINK_PLATFORMS.includes(s.platform))) {
       result.push({ kind: "link", key: `l-${source.id}`, source, from: fromOf.get(source.id) ?? "" });
     }
@@ -1078,7 +1078,8 @@ function EmbedSlide({ source, from, oshi, live }: { source: Source; from: string
   );
 }
 
-// Threads・Fantia・myfans・xfans: 中身は読み込まず、推しのページへ移るカードを出す
+// Threads・Fantia・myfans・xfans・FANZA: 中身は読み込まず、推しのページへ移るカードを出す。
+// 会員限定の中身は、利用者が自分のブラウザ(そのサービスにログイン済み)で開いて見る
 function LinkSlide({ source, from, oshi }: { source: Source; from: string; oshi: Oshi }) {
   const label = PLATFORM_LABEL[source.platform];
   return (
@@ -1094,6 +1095,7 @@ function LinkSlide({ source, from, oshi }: { source: Source; from: string; oshi:
         <p className="text-2xl font-black">{label}</p>
         <p className="text-sm text-white/75">{source.handle}</p>
         <span className="mt-2 flex h-12 items-center rounded-full bg-white px-8 text-[15px] font-bold text-black">{label}で見る</span>
+        <span className="text-xs text-white/60">ログイン済みのブラウザで開きます</span>
       </a>
       <SideActions oshi={oshi} url={source.url} title={`${oshi.name}の${label}`} platform={label} />
       <Info platform={label} oshi={oshi} from={from} time="" title={`${label} ${source.handle}`} isNew={false} />

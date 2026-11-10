@@ -38,7 +38,7 @@ const addSchema = z.object({
   url: z.string().trim().min(1).max(500),
   label: z.string().trim().max(60).default(""),
   // どのサービスの区画から追加したか。入力されたURLがそのサービスのものかを確かめる
-  expected: z.enum(["youtube", "blog", "x", "instagram", "threads", "tiktok", "link", "fantia", "myfans", "xfans"]).optional(),
+  expected: z.enum(["youtube", "blog", "x", "instagram", "threads", "tiktok", "link", "fantia", "myfans", "xfans", "fanza"]).optional(),
 });
 
 type Resolved = {
@@ -70,7 +70,7 @@ async function addSourceFor(
   const account = parseAccountUrl(parsed.data.url);
   if ("error" in account) return { ok: false, error: account.error };
 
-  // Fantia・myfans・xfans は Advanced プランだけ
+  // Fantia・myfans・xfans・FANZA は Sensitive プランだけ
   if (ADVANCED_PLATFORMS.includes(account.platform) && !canUseAdvanced(viewer.plan)) {
     return { ok: false, error: `${PLATFORM_LABEL[account.platform]}は Sensitive プランで登録できます。` };
   }
@@ -236,7 +236,7 @@ export async function importAllSns(): Promise<
     const registered = new Set(library.sources.filter((s) => s.oshi_id === oshi.id).map((s) => normalize(s.url)));
     for (const sns of oshi.sns) {
       if (registered.has(normalize(sns.url))) continue;
-      // Fantia・myfans・xfans は Advanced プランのときだけ取り込む(それ以外のプランでは入力が残っていても登録しない)
+      // Fantia・myfans・xfans・FANZA は Sensitive プランのときだけ取り込む(それ以外のプランでは入力が残っていても登録しない)
       if (ADVANCED_PLATFORMS.includes(sns.platform) && !canUseAdvanced(viewer.plan)) continue;
       registered.add(normalize(sns.url));
       queue.push({ oshiId: oshi.id, name: oshi.name, platform: sns.platform, url: sns.url });

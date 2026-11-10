@@ -13,7 +13,7 @@ export default async function AdminPricingPage() {
     <div className="max-w-[640px] space-y-4">
       <h1 className="text-xl leading-7 font-bold">料金</h1>
       <p className="text-sm text-muted">
-        推し{FREE_OSHI}人までは無料です。それを超えた推し1人ごとに、ここで決めた金額を月額に加算します(最大{PAID_MAX_OSHI}人)。{labels.advanced} は Fantia・myfans・xfans も登録できるプランです。保存すると料金ページにすぐ反映されます。
+        推し{FREE_OSHI}人までは無料です。それを超えた推し1人ごとに、ここで決めた金額を月額に加算します(最大{PAID_MAX_OSHI}人)。{labels.advanced} は Fantia・myfans・xfans・FANZA も登録できるプランです。保存すると料金ページにすぐ反映されます。
       </p>
       <PriceEditor
         initial={prices.paid}

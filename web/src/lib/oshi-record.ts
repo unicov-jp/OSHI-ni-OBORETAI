@@ -1,11 +1,11 @@
 // 推しの記録(oshikatsu_records の kind = 'oshi')を、今のアプリ(推し活手帳)と同じ形で作る・直すための部品。
 // 新しいアプリと今のアプリのどちらで登録・編集しても、同じ1行を読み書きする(同期で互いに反映される)。
 
-// 並びは入力欄の順。threads 以降は後から足したもの(fantia・myfans・xfans は Advanced プランで新着の取得先に登録される)
-export const SNS_KEYS = ["x", "instagram", "tiktok", "youtube", "threads", "web", "fantia", "myfans", "xfans"] as const;
+// 並びは入力欄の順。threads 以降は後から足したもの(fantia・myfans・xfans・fanza は Sensitive プランで新着の取得先に登録される)
+export const SNS_KEYS = ["x", "instagram", "tiktok", "youtube", "threads", "web", "fantia", "myfans", "xfans", "fanza"] as const;
 // URLのまま保存するもの(それ以外は ID・ハンドルに直して保存する)
-const URL_KEYS: readonly string[] = ["web", "fantia", "myfans", "xfans"];
-export const ADVANCED_SNS_KEYS: readonly SnsKey[] = ["fantia", "myfans", "xfans"];
+const URL_KEYS: readonly string[] = ["web", "fantia", "myfans", "xfans", "fanza"];
+export const ADVANCED_SNS_KEYS: readonly SnsKey[] = ["fantia", "myfans", "xfans", "fanza"];
 export type SnsKey = (typeof SNS_KEYS)[number];
 export type SnsInput = Record<SnsKey, string>;
 
@@ -19,6 +19,7 @@ export const SNS_LABEL: Record<SnsKey, string> = {
   fantia: "Fantia",
   myfans: "myfans",
   xfans: "xfans",
+  fanza: "FANZA",
 };
 
 export const SNS_PLACEHOLDER: Record<SnsKey, string> = {
@@ -31,6 +32,7 @@ export const SNS_PLACEHOLDER: Record<SnsKey, string> = {
   fantia: "https://fantia.jp/fanclubs/…",
   myfans: "https://myfans.jp/…",
   xfans: "https://www.xfans.tokyo/…",
+  fanza: "https://www.dmm.co.jp/…",
 };
 
 export type GroupInput = { id?: string; name: string; sns: SnsInput };
@@ -50,7 +52,7 @@ export type OshiEditable = {
 };
 
 export const emptySns = (): SnsInput => ({
-  x: "", instagram: "", tiktok: "", youtube: "", threads: "", web: "", fantia: "", myfans: "", xfans: "",
+  x: "", instagram: "", tiktok: "", youtube: "", threads: "", web: "", fantia: "", myfans: "", xfans: "", fanza: "",
 });
 
 // 今のアプリは SNS を「ID」で持つ(公式HPだけURL)。URLが入力されたら ID に直して保存する。

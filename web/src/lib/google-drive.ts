@@ -112,7 +112,7 @@ async function ensureFolder(token: string, userId: string, name: string, parent:
 
 // 写真を1枚ドライブへ保存し、記録に入れる置き場所(gdrive:<ファイルID>)を返す
 export async function uploadPhotoToDrive(
-  token: string, userId: string, sub: "Gallery" | "チェキ" | "LIVE", fileName: string, bytes: ArrayBuffer, type: string,
+  token: string, userId: string, sub: "Gallery" | "チェキ" | "LIVE" | "その他", fileName: string, bytes: ArrayBuffer, type: string,
 ): Promise<string> {
   const root = await ensureFolder(token, userId, ROOT_FOLDER, null);
   const parent = await ensureFolder(token, userId, sub, root);

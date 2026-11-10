@@ -112,6 +112,7 @@ export async function GET(request: Request) {
 // - target=gallery: 推しのギャラリーの先頭に入れる(今のアプリのギャラリーと同じ)
 // - target=cheki: チェキの記録を1件作る(title=イベント名、date=日付、写真は1件にまとめる)
 // - target=live: LIVEの記録(recordId)のポスターを差し替える(写真の1枚目。1枚だけ)
+// - target=oshi-photo: 推しのアイコンの写真を差し替える(photos=[切り抜いた写真, 元の写真]。今のアプリの photo・photoOriginal)
 export async function POST(request: Request) {
   if (DEMO) return NextResponse.json({ error: "デモ表示では追加できません" }, { status: 400 });
   const viewer = await requireViewer();
@@ -121,7 +122,7 @@ export async function POST(request: Request) {
   const target = form.get("target");
   const oshiId = String(form.get("oshiId") ?? "");
   const files = form.getAll("photos").filter((f): f is File => f instanceof File);
-  if (target !== "gallery" && target !== "cheki" && target !== "live") return NextResponse.json({ error: "追加先が正しくありません" }, { status: 400 });
+  if (target !== "gallery" && target !== "cheki" && target !== "live" && target !== "oshi-photo") return NextResponse.json({ error: "追加先が正しくありません" }, { status: 400 });
   if (!oshiId || oshiId.length > 100) return NextResponse.json({ error: "推しが正しくありません" }, { status: 400 });
   if (files.length === 0) return NextResponse.json({ error: "写真を選んでください" }, { status: 400 });
   if (files.length > MAX_FILES) return NextResponse.json({ error: `一度に追加できるのは${MAX_FILES}枚までです` }, { status: 400 });
@@ -129,6 +130,7 @@ export async function POST(request: Request) {
     if (!IMAGE_TYPES.includes(file.type)) return NextResponse.json({ error: "画像ファイルを選んでください" }, { status: 400 });
     if (file.size > MAX_BYTES) return NextResponse.json({ error: "写真が大きすぎます" }, { status: 400 });
   }
+  if (target === "oshi-photo" && files.length !== 2) return NextResponse.json({ error: "写真を選び直してください" }, { status: 400 });
   const liveId = String(form.get("recordId") ?? "");
   if (target === "live" && (!liveId || liveId.length > 100 || files.length !== 1)) {
     return NextResponse.json({ error: "ポスターは1枚選んでください" }, { status: 400 });
@@ -163,8 +165,9 @@ export async function POST(request: Request) {
         const name =
           target === "gallery" ? `gallery_${oshiId}_${stamp}_${i}.jpg`
             : target === "live" ? `live_${liveId}_${stamp}_1.jpg`
-              : `cheki_${recordId}_${stamp}_${i + 1}.jpg`;
-        const sub = target === "gallery" ? "Gallery" : target === "live" ? "LIVE" : "チェキ";
+              : target === "oshi-photo" ? `oshi_${oshiId}_${i === 0 ? "photo" : "original"}_${stamp}.jpg`
+                : `cheki_${recordId}_${stamp}_${i + 1}.jpg`;
+        const sub = target === "gallery" ? "Gallery" : target === "live" ? "LIVE" : target === "oshi-photo" ? "その他" : "チェキ";
         refs.push(await uploadPhotoToDrive(token, viewer.id, sub, name, bytes, file.type));
       } else {
         if (bytes.byteLength > MAX_INLINE_BYTES) {
@@ -177,7 +180,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "写真を保存できませんでした。時間をおいてもう一度お試しください" }, { status: 502 });
   }
 
-  if (target === "live") {
+  if (target === "oshi-photo") {
+    const { error } = await supabase
+      .from("oshikatsu_records")
+      .update({ data: { ...oshiData, photo: refs[0], photoOriginal: refs[1] } })
+      .eq("kind", "oshi")
+      .eq("id", oshiId);
+    if (error) return NextResponse.json({ error: "保存できませんでした" }, { status: 500 });
+  } else if (target === "live") {
     const { data: liveRow } = await supabase
       .from("oshikatsu_records")
       .select("data")

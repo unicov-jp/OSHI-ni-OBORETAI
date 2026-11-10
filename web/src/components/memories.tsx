@@ -471,7 +471,13 @@ function LiveRow({ entry, onDetail }: { entry: CalendarEntry; onDetail: () => vo
           <span className="block truncate text-[14px] font-semibold">{entry.title}</span>
           {entry.sub ? <span className="num block truncate text-xs text-white/55">{entry.sub}</span> : null}
         </span>
-        {live ? <span className="shrink-0 text-[11px] text-white/55">{VIEWING_LABEL[live.viewing]}</span> : null}
+        {live ? (
+          <span className="flex shrink-0 items-center gap-1 text-xs text-white/55">
+            {VIEWING_LABEL[live.viewing]}
+            {/* チェキの「ギャラリーで見る ›」とそろえる。開いている間は下向きにする */}
+            <span aria-hidden className={`inline-block transition-transform ${open ? "rotate-90" : ""}`}>›</span>
+          </span>
+        ) : null}
       </button>
       {open && live ? (
         <div className="flex gap-2 px-4 pb-3">

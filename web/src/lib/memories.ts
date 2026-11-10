@@ -128,6 +128,7 @@ export async function getCalendar(oshiId: string): Promise<CalendarEntry[]> {
           memo: str(data.memo),
           mapUrl: mapsUrlFor(str(data.venue), data.venuePlace),
           streamUrl: streamUrlOf(data),
+          ticketUrl: /^https?:\/\//.test(str(data.ticketUrl)) ? str(data.ticketUrl) : "",
           poster: posterRef ? photoUrl("live", row.id, field, posterIndex, posterRef) : "",
         },
       });

@@ -461,7 +461,7 @@ function TypeMark({ type }: { type: CalendarEntry["type"] }) {
 
 const VIEWING_LABEL = { venue: "現地", stream: "配信", tbd: "未定" } as const;
 
-// LIVE の1行: 短押しでマップ・配信のボタンを出し、長押しでポスターと編集ボタンの画面を出す
+// LIVE の1行: 短押しで現地(マップ)・チケット・配信のボタンを出し、長押しでポスターと編集ボタンの画面を出す
 function LiveRow({ entry, onDetail }: { entry: CalendarEntry; onDetail: () => void }) {
   const [open, setOpen] = useState(false);
   const press = useLongPress(onDetail);
@@ -474,7 +474,7 @@ function LiveRow({ entry, onDetail }: { entry: CalendarEntry; onDetail: () => vo
         {...press}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        aria-label={`${entry.title}(タップでマップ・配信、長押しでポスターと編集)`}
+        aria-label={`${entry.title}(タップで現地・チケット・配信、長押しでポスターと編集)`}
         className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-white/10"
       >
         <TypeMark type="live" />
@@ -492,19 +492,21 @@ function LiveRow({ entry, onDetail }: { entry: CalendarEntry; onDetail: () => vo
       </button>
       {open && live ? (
         <div className="flex gap-2 px-4 pb-3">
-          {live.mapUrl ? (
-            <a href={live.mapUrl} target="_blank" rel="noopener noreferrer" className={`${action} bg-white text-black`}>
-              マップ
-            </a>
-          ) : (
-            <span className={`${action} bg-white/10 text-white/35`}>マップ(会場なし)</span>
-          )}
-          {live.streamUrl ? (
-            <a href={live.streamUrl} target="_blank" rel="noopener noreferrer" className={`${action} bg-[#ff2d6f] text-white`}>
-              配信
-            </a>
-          ) : (
-            <span className={`${action} bg-white/10 text-white/35`}>配信(URLなし)</span>
+          {/* 現地(会場をマップで開く)・チケット・配信。登録が無いものは押せない表示にする */}
+          {([
+            ["現地", live.mapUrl, "bg-white text-black"],
+            ["チケット", live.ticketUrl, "bg-[#ffd23f] text-black"],
+            ["配信", live.streamUrl, "bg-[#ff2d6f] text-white"],
+          ] as const).map(([label, url, tone]) =>
+            url ? (
+              <a key={label} href={url} target="_blank" rel="noopener noreferrer" className={`${action} ${tone}`}>
+                {label}
+              </a>
+            ) : (
+              <span key={label} className={`${action} bg-white/10 text-white/30`} aria-disabled="true">
+                {label}
+              </span>
+            ),
           )}
         </div>
       ) : null}
@@ -570,6 +572,8 @@ function LiveSheet({ oshi, date: initialDate, entry, onClose }: { oshi: Oshi; da
   const [venue, setVenue] = useState(live?.venue ?? "");
   const [viewing, setViewing] = useState<"venue" | "stream" | "tbd">(live?.viewing ?? "venue");
   const [memo, setMemo] = useState(live?.memo ?? "");
+  const [ticketUrl, setTicketUrl] = useState(live?.ticketUrl ?? "");
+  const [streamUrl, setStreamUrl] = useState(live?.streamUrl ?? "");
   const [poster, setPoster] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -584,7 +588,7 @@ function LiveSheet({ oshi, date: initialDate, entry, onClose }: { oshi: Oshi; da
     setBusy(true);
     setError(null);
     try {
-      const fields = { date, title, startTime, venue, viewing, memo };
+      const fields = { date, title, startTime, venue, viewing, memo, ticketUrl, streamUrl };
       let id = entry?.id;
       if (id) {
         const result = await updateLive(id, fields);
@@ -691,6 +695,14 @@ function LiveSheet({ oshi, date: initialDate, entry, onClose }: { oshi: Oshi; da
               ))}
             </div>
           </div>
+          <label className="block">
+            <span className="mb-1 block text-xs text-white/60">チケットのURL(任意)</span>
+            <input value={ticketUrl} maxLength={500} inputMode="url" onChange={(e) => setTicketUrl(e.target.value)} className={field} placeholder="https://" />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs text-white/60">配信のURL(任意)</span>
+            <input value={streamUrl} maxLength={500} inputMode="url" onChange={(e) => setStreamUrl(e.target.value)} className={field} placeholder="https://" />
+          </label>
           <label className="block">
             <span className="mb-1 block text-xs text-white/60">メモ(任意)</span>
             <textarea

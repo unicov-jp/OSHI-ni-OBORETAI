@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { PriceSimulator } from "@/components/price-simulator";
 import { buttonClass } from "@/components/ui";
 import { FREE_OSHI, getPriceTiers, yen } from "@/lib/pricing";
 
@@ -8,10 +9,11 @@ export const metadata: Metadata = { title: "料金" };
 export const dynamic = "force-dynamic";
 
 // 料金ページ(ログインしていなくても見られる)。
-// 無料は推し3人まで。Subscription は登録する推しの人数で月額が変わる(金額は管理画面の「料金」で決める)
+// 無料は推し3人まで。Subscription は登録する推しの人数で月額が変わる(金額は管理画面の「料金」で決める)。
+// ▲▼で人数を変えると、その人数の月額を出す。Blog は登録できるが、ファンクラブ限定のこともあるため料金表には書かない
 
 const COMMON = [
-  "推しごとの新着(YouTube・Blog・X・Instagram・TikTok)をスワイプで見る",
+  "推しごとの投稿(YouTube・X・Instagram・TikTok)をスワイプで見る",
   "ギャラリー(推しの写真・チェキ)",
   "カレンダー(LIVE・チェキの記録)",
 ];
@@ -47,7 +49,7 @@ export default async function PricingPage() {
           <span className="text-xs text-muted">まずはお試しに</span>
         </div>
         <p className="num mt-2 text-2xl font-bold">0円</p>
-        <p className="num mt-1 text-sm text-muted">推し{FREE_OSHI}人まで・新着を取るSNS・Blog 15件まで</p>
+        <p className="num mt-1 text-sm text-muted">推し{FREE_OSHI}人まで・SNS 15件まで</p>
       </section>
 
       {/* Subscription: 人数ごとの月額 */}
@@ -62,6 +64,7 @@ export default async function PricingPage() {
               月額{yen(lowest.monthly_yen)}
               <span className="text-sm font-normal text-muted">〜</span>
             </p>
+            <PriceSimulator tiers={tiers} freeOshi={FREE_OSHI} />
             <ul className="mt-4 divide-y divide-line overflow-hidden rounded-xl bg-sunken">
               {tiers.map((tier, i) => {
                 const from = (i === 0 ? FREE_OSHI : tiers[i - 1].max_oshi) + 1;
@@ -75,7 +78,7 @@ export default async function PricingPage() {
                 );
               })}
             </ul>
-            <p className="num mt-3 text-xs text-muted">新着を取るSNS・Blog は300件まで。人数を増やしたときは、その人数の月額に切り替わります。</p>
+            <p className="num mt-3 text-xs text-muted">SNSは300件まで。推しを増やすと、その人数の月額に自動で切り替わります。</p>
           </>
         ) : (
           <p className="mt-2 text-2xl font-bold">準備中</p>

@@ -161,6 +161,8 @@ export type CalendarEntry = {
     mapUrl: string;
     // 配信のURL(無ければ空)
     streamUrl: string;
+    // チケットのURL(無ければ空)
+    ticketUrl: string;
     // ポスター(LIVEの写真の1枚目。無ければ空)
     poster: string;
   };

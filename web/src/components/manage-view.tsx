@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
-import { Dialog } from "@/components/dialog";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { OshiAvatar } from "@/components/oshi-avatar";
 import { OshiEditor } from "@/components/oshi-editor";
 import {
-  Badge, Button, Clamp, EmptyState, inputClass, Notice,
+  Button, Clamp, EmptyState, inputClass, Notice,
 } from "@/components/ui";
 import { addSource, deleteSource, importAllSns } from "@/lib/actions/sources";
 import { atLimit, limitText } from "@/lib/plans";
@@ -19,7 +18,7 @@ type Props = {
   oshi: Oshi[];
   categories: Category[];
   sources: Source[];
-  // 新着の画面の長押しから開いたとき: そのまま開く画面(閉じたら新着に戻る)
+  // 新着の画面の長押し・メニューから開いたとき: その推しだけの画面を開く(閉じたら新着のその推しに戻る)
   initialSns?: string;
   initialNew?: boolean;
   initialEdit?: string;
@@ -27,133 +26,169 @@ type Props = {
 
 // 推しの登録・編集と、推しごとのSNS・Blog(新着を取る先)の登録。
 // 推しは今のアプリ(推し活手帳)と同じ記録を読み書きするので、どちらで登録・編集しても互いに反映される。
+// - 推しを1人選んで開いたとき(?sns= / ?edit= / ?new=1): その推しだけの画面(上に「SNS」「プロフィール」の切り替え)
+// - 何も選ばずに開いたとき: 推しの一覧
 export function ManageView({ viewer, oshi, categories, sources, initialSns, initialNew, initialEdit }: Props) {
-  const router = useRouter();
-  const fromFeed = Boolean(initialSns || initialNew || initialEdit);
-  const [editingId, setEditingId] = useState<string | null>(initialSns ?? null);
-  // 推しの編集画面: null = 閉じている、"new" = 新しく登録、それ以外 = 編集する推しの id
-  const [oshiEditing, setOshiEditing] = useState<string | null>(initialNew ? "new" : (initialEdit ?? null));
-  // 新着の画面から開いたときは、閉じたら新着(その推し)に戻る
-  // 履歴を置き換えて戻る(登録画面を履歴に残さない。SNSの投稿を開いて戻ったときに登録画面が見えないように)
-  const backToFeed = (id?: string | null) => router.replace(id ? `/app?tab=${encodeURIComponent(id)}` : "/app");
-  const [message, setMessage] = useState<string | null>(null);
-  const oshiFull = atLimit(oshi.length, viewer.maxOshi);
-  const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? "";
-  const target = editingId ? oshi.find((o) => o.id === editingId) : undefined;
+  const focusId = initialSns ?? initialEdit;
+  const focus = focusId ? oshi.find((o) => o.id === focusId) : undefined;
   const sourceFull = atLimit(sources.length, viewer.maxSources);
 
+  if (initialNew) return <NewOshiPage oshiFull={atLimit(oshi.length, viewer.maxOshi)} maxOshi={viewer.maxOshi} />;
+  if (focus) {
+    return (
+      <OshiPage
+        key={focus.id}
+        oshi={focus}
+        sources={sources.filter((s) => s.oshi_id === focus.id)}
+        sourceFull={sourceFull}
+        maxSources={viewer.maxSources}
+        initialTab={initialEdit ? "profile" : "sns"}
+      />
+    );
+  }
+  return <OshiList viewer={viewer} oshi={oshi} categories={categories} sources={sources} />;
+}
+
+// 閉じたら新着のその推しに戻る(履歴を置き換える。SNSの投稿を開いて戻ったときに登録画面が見えないように)
+function useBackToFeed() {
+  const router = useRouter();
+  return (id?: string | null) => router.replace(id ? `/app?tab=${encodeURIComponent(id)}` : "/app");
+}
+
+function PageHeader({ onBack, children }: { onBack: () => void; children: ReactNode }) {
   return (
-    <div className="mx-auto max-w-[1000px]">
-      <header className="flex min-h-[60px] flex-wrap items-center gap-x-4 gap-y-2">
+    <header className="flex min-h-[60px] items-center gap-3">
+      <button
+        type="button"
+        onClick={onBack}
+        aria-label="新着に戻る"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted hover:bg-sunken hover:text-text"
+      >
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden>
+          <path d="M12.5 4l-6 6 6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <div className="flex min-w-0 flex-1 items-center gap-3">{children}</div>
+    </header>
+  );
+}
+
+// 推し1人の画面: 「SNS」と「プロフィール」を切り替える
+function OshiPage({ oshi, sources, sourceFull, maxSources, initialTab }: {
+  oshi: Oshi; sources: Source[]; sourceFull: boolean; maxSources: number | null; initialTab: "sns" | "profile";
+}) {
+  const back = useBackToFeed();
+  const [tab, setTab] = useState(initialTab);
+  return (
+    <div className="mx-auto max-w-[640px] pb-10">
+      <PageHeader onBack={() => back(oshi.id)}>
+        <OshiAvatar oshi={oshi} size={40} />
+        <h1 className="clamp-1 min-w-0 text-lg font-bold" title={oshi.name}>{oshi.name}</h1>
+      </PageHeader>
+
+      <div role="tablist" className="mt-2 grid grid-cols-2 rounded-xl bg-sunken p-1">
+        {([["sns", `SNS(${sources.length})`], ["profile", "プロフィール"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+            className={`num h-10 rounded-lg text-sm font-semibold ${tab === key ? "bg-surface text-text shadow-sm" : "text-muted"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-5">
+        {tab === "sns" ? (
+          <>
+            {sourceFull ? (
+              <div className="mb-4">
+                <Notice tone="warn">登録できるアカウントの上限({maxSources}件)に達しています。</Notice>
+              </div>
+            ) : null}
+            <SnsEditor oshi={oshi} sources={sources} disabled={sourceFull} />
+          </>
+        ) : (
+          <OshiEditor oshiId={oshi.id} onDone={(_text, id) => back(id ?? null)} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// 推しを新しく登録する画面
+function NewOshiPage({ oshiFull, maxOshi }: { oshiFull: boolean; maxOshi: number | null }) {
+  const back = useBackToFeed();
+  return (
+    <div className="mx-auto max-w-[640px] pb-10">
+      <PageHeader onBack={() => back()}>
+        <h1 className="text-lg font-bold">推しを追加</h1>
+      </PageHeader>
+      <div className="mt-3">
+        {oshiFull ? (
+          <Notice tone="warn">登録できる推しの上限({maxOshi}人)に達しています。</Notice>
+        ) : (
+          <OshiEditor oshiId={null} onDone={(_text, id) => back(id)} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// 推しの一覧(何も選ばずに開いたとき)。タップでその推しの画面へ
+function OshiList({ viewer, oshi, categories, sources }: { viewer: Viewer; oshi: Oshi[]; categories: Category[]; sources: Source[] }) {
+  const router = useRouter();
+  const back = useBackToFeed();
+  const oshiFull = atLimit(oshi.length, viewer.maxOshi);
+  const sourceFull = atLimit(sources.length, viewer.maxSources);
+  const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? "";
+
+  return (
+    <div className="mx-auto max-w-[760px] pb-10">
+      <PageHeader onBack={() => back()}>
         <div className="min-w-0 flex-1">
-          <Link href="/app/settings" className="text-[13px] text-muted hover:text-text">
-            ← 設定
-          </Link>
-          <h1 className="text-xl leading-7 font-bold">推しの登録</h1>
+          <h1 className="text-lg font-bold">推し</h1>
           <p className="num text-[13px] text-muted">
             推し {limitText(oshi.length, viewer.maxOshi, "人")}、アカウント {limitText(sources.length, viewer.maxSources, "件")}
           </p>
         </div>
-        <Button variant="primary" className="w-[120px]" disabled={oshiFull} onClick={() => setOshiEditing("new")}>
+        <Button variant="primary" className="w-[104px]" disabled={oshiFull} onClick={() => router.push("/app/manage?new=1")}>
           推しを追加
         </Button>
-      </header>
-
-      <div className="mt-3 space-y-2">
-        <Notice>推しの登録・編集は、今のアプリ(推し活手帳)と共通です。どちらで変えても、もう一方に反映されます。</Notice>
-        {oshiFull ? <Notice tone="warn">登録できる推しの上限({viewer.maxOshi}人)に達しています。</Notice> : null}
-        {message ? <Notice tone="ok">{message}</Notice> : null}
-      </div>
+      </PageHeader>
 
       <ImportAll oshi={oshi} sources={sources} disabled={sourceFull} />
 
-      {sourceFull ? (
-        <div className="mt-3">
-          <Notice tone="warn">
-            登録できるアカウントの上限({viewer.maxSources}件)に達しています。
-            {viewer.plan === "free" ? " 有料プランにすると300件まで登録できます(有料プランは準備中です)。" : ""}
-          </Notice>
-        </div>
-      ) : null}
-
-      <div className="mt-5">
+      <div className="mt-4">
         {oshi.length === 0 ? (
-          <EmptyState
-            title="推しがまだ登録されていません"
-            body="今のアプリ(推し活手帳)で推しを登録すると、ここにSNSを登録できるようになります。"
-          />
+          <EmptyState title="推しがまだ登録されていません" body="「推しを追加」から登録すると、ここにSNSを登録できるようになります。" />
         ) : (
-          <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
             {oshi.map((o) => {
-              const labels = [
-                ...o.group_ids.map((id) => categoryName(id)),
-                categoryName(o.agency_id),
-              ].filter(Boolean).join(" / ");
+              const labels = [...o.group_ids.map((id) => categoryName(id)), categoryName(o.agency_id)].filter(Boolean).join(" / ");
               const count = sources.filter((s) => s.oshi_id === o.id).length;
               return (
-                <li key={o.id} className="flex h-[76px] min-w-0 items-center gap-3 rounded-xl border border-line bg-surface pr-3">
-                  <button
-                    type="button"
-                    onClick={() => setOshiEditing(o.id)}
-                    className="flex h-full min-w-0 flex-1 items-center gap-3 rounded-l-xl pl-4 text-left hover:bg-sunken"
-                    aria-label={`${o.name}を編集`}
+                <li key={o.id}>
+                  <Link
+                    href={`/app/manage?sns=${encodeURIComponent(o.id)}`}
+                    className="flex h-[72px] min-w-0 items-center gap-3 px-4 hover:bg-sunken"
                   >
                     <OshiAvatar oshi={o} size={44} />
                     <span className="min-w-0 flex-1">
                       <Clamp className="text-[15px] font-semibold">{o.name}</Clamp>
                       <Clamp className="text-[13px] text-muted">{labels || "所属なし"}</Clamp>
                     </span>
-                  </button>
-                  <Badge>
-                    <span className="num">{count}件</span>
-                  </Badge>
-                  <Button size="sm" className="w-[64px]" onClick={() => setEditingId(o.id)}>
-                    SNS
-                  </Button>
+                    <span className="num shrink-0 text-[13px] text-muted">SNS {count}件</span>
+                  </Link>
                 </li>
               );
             })}
           </ul>
         )}
       </div>
-
-      <Dialog
-        open={target !== undefined}
-        onClose={() => {
-          if (fromFeed) backToFeed(editingId);
-          setEditingId(null);
-        }}
-        title={target ? `${target.name} のSNS` : ""}
-        wide
-      >
-        {target ? (
-          <div className="space-y-6">
-            <SnsEditor key={target.id} oshi={target} sources={sources.filter((s) => s.oshi_id === target.id)} disabled={sourceFull} />
-          </div>
-        ) : null}
-      </Dialog>
-
-      <Dialog
-        open={oshiEditing !== null}
-        onClose={() => {
-          if (fromFeed) backToFeed(oshiEditing === "new" ? null : oshiEditing);
-          setOshiEditing(null);
-        }}
-        title={oshiEditing === "new" ? "推しを追加" : `${oshi.find((o) => o.id === oshiEditing)?.name ?? ""} を編集`}
-        wide
-      >
-        {oshiEditing !== null ? (
-          <OshiEditor
-            key={oshiEditing}
-            oshiId={oshiEditing === "new" ? null : oshiEditing}
-            onDone={(text, id) => {
-              if (fromFeed) return backToFeed(id);
-              setOshiEditing(null);
-              setMessage(text);
-            }}
-          />
-        ) : null}
-      </Dialog>
     </div>
   );
 }
@@ -276,18 +311,14 @@ function ImportAll({ oshi, sources, disabled }: { oshi: Oshi[]; sources: Source[
   );
 }
 
-// 推しのSNSの登録(シンプル版)。
-// 1. 登録済みの一覧(解除できる) 2. 今のアプリの登録から追加できる候補(＋追加) 3. URLを貼って追加(サービスは自動で見分ける)
+// 推しのSNSの登録。
+// 「本人」「グループ(兼任なら複数)」ごとに分けて、登録済み(解除できる)と、今のアプリの登録にあるがまだ登録していないもの(＋追加)を並べる。
+// いちばん下に、URLを貼って追加する欄(サービスはURLから自動で見分ける)
 function SnsEditor({ oshi, sources, disabled }: { oshi: Oshi; sources: Source[]; disabled: boolean }) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "ok" | "danger" | "warn"; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
-
-  const registered = new Set(sources.map((s) => normalizeUrl(s.url)));
-  const candidates = oshi.sns.filter((c, i, list) =>
-    !registered.has(normalizeUrl(c.url)) && list.findIndex((x) => normalizeUrl(x.url) === normalizeUrl(c.url)) === i,
-  );
 
   const add = (target: string, platform?: Platform) => {
     setMessage(null);
@@ -311,79 +342,128 @@ function SnsEditor({ oshi, sources, disabled }: { oshi: Oshi; sources: Source[];
     });
   };
 
-  const badge = "flex h-8 w-[72px] shrink-0 items-center justify-center rounded-md border border-line text-[11px] font-bold";
+  const groups = groupSns(oshi, sources);
 
   return (
     <div className="space-y-6">
-      {/* 3. URLを貼って追加 */}
+      {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
+
+      {groups.map((group) => (
+        <section key={group.title}>
+          <h2 className="mb-1 flex items-baseline gap-2">
+            <span className="text-[15px] font-semibold">{group.title}</span>
+            {group.title !== "本人" && group.title !== "その他" ? <span className="text-xs text-muted">グループ</span> : null}
+          </h2>
+          <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
+            {group.rows.map((row) =>
+              row.source ? (
+                <li key={row.key} className="flex h-14 items-center gap-3 pr-2 pl-3">
+                  <PlatformMark platform={row.platform} />
+                  <span className="clamp-1 min-w-0 flex-1 text-sm" title={row.url}>{row.name}</span>
+                  <Button size="sm" variant="ghost" className="w-[64px]" disabled={pending} onClick={() => remove(row.source!)}>
+                    {busy === row.source.id ? "解除中" : "解除"}
+                  </Button>
+                </li>
+              ) : (
+                <li key={row.key} className="flex h-14 items-center gap-3 pr-2 pl-3">
+                  <PlatformMark platform={row.platform} dim />
+                  <span className="min-w-0 flex-1">
+                    <span className="clamp-1 block text-sm text-muted" title={row.url}>{row.name}</span>
+                    <span className="block text-[11px] text-muted">未登録(今のアプリに登録あり)</span>
+                  </span>
+                  <Button size="sm" className="w-[64px]" disabled={pending || disabled} onClick={() => add(row.url, row.platform)}>
+                    {busy === row.url ? "確認中" : "追加"}
+                  </Button>
+                </li>
+              ),
+            )}
+          </ul>
+        </section>
+      ))}
+
+      {groups.length === 0 ? <p className="text-sm text-muted">まだ登録されていません。下の欄にURLを貼って追加してください。</p> : null}
+
       <form
-        className="space-y-2"
+        className="space-y-2 rounded-xl border border-line bg-surface p-4"
         onSubmit={(event) => {
           event.preventDefault();
           if (!pending && url.trim()) add(url.trim());
         }}
       >
-        <p className="text-[15px] font-semibold">URLを貼り付けて追加</p>
+        <p className="text-[15px] font-semibold">URLで追加</p>
         <div className="flex gap-2">
           <input
             className={inputClass}
             value={url}
             onChange={(event) => setUrl(event.target.value)}
-            placeholder="YouTube・X・Instagram・TikTok・Blog のURL"
+            placeholder="https://..."
             inputMode="url"
             aria-label="追加するURL"
           />
-          <Button type="submit" variant="primary" className="w-[88px] shrink-0" disabled={pending || disabled || !url.trim()}>
+          <Button type="submit" variant="primary" className="w-[80px] shrink-0" disabled={pending || disabled || !url.trim()}>
             {busy === url && url ? "確認中" : "追加"}
           </Button>
         </div>
-        <p className="text-xs text-muted">サービスはURLから自動で見分けます。</p>
+        <p className="text-xs text-muted">YouTube・X・Instagram・TikTok・Blog。サービスはURLから自動で見分けます。</p>
       </form>
-
-      {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
-
-      {/* 2. 今のアプリの登録から追加できる候補 */}
-      {candidates.length > 0 ? (
-        <section>
-          <p className="text-[15px] font-semibold">追加できる候補</p>
-          <ul className="mt-1 divide-y divide-line">
-            {candidates.map((c) => (
-              <li key={c.url} className="flex h-14 items-center gap-3">
-                <span className={badge}>{PLATFORM_LABEL[c.platform]}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="clamp-1 block text-sm" title={c.url}>{c.url.replace(/^https?:\/\/(www\.)?/, "")}</span>
-                  <span className="clamp-1 block text-xs text-muted">{c.from === "本人" ? "本人" : `${c.from}(グループ)`}</span>
-                </span>
-                <Button size="sm" className="w-[72px]" disabled={pending || disabled} onClick={() => add(c.url, c.platform)}>
-                  {busy === c.url ? "確認中" : "＋追加"}
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {/* 1. 登録済み */}
-      <section>
-        <p className="text-[15px] font-semibold">登録済み({sources.length}件)</p>
-        {sources.length === 0 ? (
-          <p className="mt-1 text-sm text-muted">まだありません。</p>
-        ) : (
-          <ul className="mt-1 divide-y divide-line">
-            {sources.map((source) => (
-              <li key={source.id} className="flex h-14 items-center gap-3">
-                <span className={badge}>{PLATFORM_LABEL[source.platform]}</span>
-                <span className="clamp-1 min-w-0 flex-1 text-sm" title={source.url}>
-                  {source.label || source.handle || source.url.replace(/^https?:\/\/(www\.)?/, "")}
-                </span>
-                <Button size="sm" variant="ghost" className="w-[72px]" disabled={pending} onClick={() => remove(source)}>
-                  {busy === source.id ? "解除中" : "解除"}
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
     </div>
+  );
+}
+
+type SnsRow = { key: string; platform: Platform; url: string; name: string; source?: Source };
+
+const PLATFORM_ORDER: Platform[] = ["x", "instagram", "tiktok", "youtube", "threads", "blog", "link"];
+
+// 表示名: @ハンドルがあればそれ、YouTube のチャンネルID(UC...)のような読めないものはサービス名にする
+function displayName(platform: Platform, url: string, source?: Source): string {
+  const handle = source?.label || source?.handle || "";
+  if (handle && !/^UC[\w-]{20,}$/.test(handle)) return handle;
+  const path = url.replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
+  const at = path.match(/\/(@[^/?#]+)/);
+  if (at) return decodeURIComponent(at[1]);
+  if (platform === "youtube") return "YouTubeチャンネル";
+  return path;
+}
+
+// 本人 → グループ(今のアプリの並び順) → その他 の順に、登録済みと未登録の候補を分けて並べる
+function groupSns(oshi: Oshi, sources: Source[]): { title: string; rows: SnsRow[] }[] {
+  const ownerOf = new Map<string, string>();
+  for (const sns of oshi.sns) if (!ownerOf.has(normalizeUrl(sns.url))) ownerOf.set(normalizeUrl(sns.url), sns.from || "本人");
+  const titles: string[] = ["本人", ...oshi.sns.map((s) => s.from || "本人").filter((t) => t !== "本人")];
+  const buckets = new Map<string, SnsRow[]>();
+  const push = (title: string, row: SnsRow) => {
+    if (!buckets.has(title)) buckets.set(title, []);
+    buckets.get(title)!.push(row);
+  };
+  const registered = new Set<string>();
+  for (const source of sources) {
+    registered.add(normalizeUrl(source.url));
+    push(ownerOf.get(normalizeUrl(source.url)) ?? "その他", {
+      key: source.id, platform: source.platform, url: source.url, name: displayName(source.platform, source.url, source), source,
+    });
+  }
+  for (const sns of oshi.sns) {
+    const key = normalizeUrl(sns.url);
+    if (registered.has(key)) continue;
+    registered.add(key);
+    push(sns.from || "本人", { key: `c-${key}`, platform: sns.platform, url: sns.url, name: displayName(sns.platform, sns.url) });
+  }
+  const order = [...new Set([...titles, "その他"])];
+  return order
+    .filter((title) => buckets.has(title))
+    .map((title) => ({
+      title,
+      rows: buckets.get(title)!.sort((a, b) =>
+        Number(!a.source) - Number(!b.source) || PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform)),
+    }));
+}
+
+function PlatformMark({ platform, dim = false }: { platform: Platform; dim?: boolean }) {
+  return (
+    <span
+      className={`flex h-7 w-[76px] shrink-0 items-center justify-center rounded-md border border-line text-[11px] font-bold ${dim ? "text-muted" : ""}`}
+    >
+      {PLATFORM_LABEL[platform]}
+    </span>
   );
 }

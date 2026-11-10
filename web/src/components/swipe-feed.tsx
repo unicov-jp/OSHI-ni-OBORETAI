@@ -101,8 +101,10 @@ function useLongPress(onLongPress: () => void) {
 }
 
 // 推しのアイコン: タップでその推しの新着、長押しでその推しのSNSの登録
-function OshiTab({ oshi: o, on, count, busy, onRefresh, tabRef }: {
-  oshi: Oshi; on: boolean; count: number; busy: boolean; onRefresh?: () => void; tabRef?: React.Ref<HTMLAnchorElement>;
+// 上の並びは「いちばん左の推し」を再生する。ほかのアイコンをタップすると、そのアイコンが左端まで動いて切り替わる
+function OshiTab({ oshi: o, on, count, busy, onRefresh, onSelect, tabRef }: {
+  oshi: Oshi; on: boolean; count: number; busy: boolean; onRefresh?: () => void; onSelect: () => void;
+  tabRef?: React.Ref<HTMLAnchorElement>;
 }) {
   const router = useRouter();
   const press = useLongPress(() => router.push(`/app/manage?sns=${encodeURIComponent(o.id)}`));
@@ -111,6 +113,7 @@ function OshiTab({ oshi: o, on, count, busy, onRefresh, tabRef }: {
       href={`/app?tab=${encodeURIComponent(o.id)}`}
       replace
       ref={tabRef}
+      data-oshi={o.id}
       aria-current={on ? "page" : undefined}
       aria-label={`${o.name}(タップで新着を取りに行く・長押しでSNSを登録)`}
       title={o.name}
@@ -118,10 +121,9 @@ function OshiTab({ oshi: o, on, count, busy, onRefresh, tabRef }: {
       {...press}
       // 選んでいる推しをもう一度タップしたときは、その推しの新着を取りに行く
       onClick={(event) => {
-        if (on && onRefresh) {
-          event.preventDefault();
-          onRefresh();
-        }
+        event.preventDefault();
+        if (on) onRefresh?.();
+        else onSelect();
       }}
       style={{ ...press.style, width: "var(--slot)", height: "var(--slot)" }}
     >
@@ -205,10 +207,47 @@ export function SwipeFeed({
     });
   }, [pendingSns, router]);
   const activeTab = useRef<HTMLAnchorElement>(null);
+  const tabs = useRef<HTMLElement>(null);
 
-  // 推しを選び直すと画面が作り直されて上の並びが左端に戻るので、選んだ推しを真ん中あたりに戻す
+  // 再生中の推しを、上の並びのいちばん左に置く
   useEffect(() => {
-    activeTab.current?.scrollIntoView({ inline: "center", block: "nearest", behavior: "instant" as ScrollBehavior });
+    const nav = tabs.current;
+    const tab = activeTab.current;
+    if (nav && tab) nav.scrollLeft = tab.offsetLeft;
+  }, [active.id]);
+
+  // 上の並びを動かし終えたら、いちばん左に来た推しに切り替える(切り替えた推しは開いたときに新着を取りに行く)
+  useEffect(() => {
+    const nav = tabs.current;
+    if (!nav) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = () => {
+      clearTimeout(timer);
+      const slot = (nav.firstElementChild as HTMLElement | null)?.offsetWidth ?? 0;
+      if (slot === 0) return;
+      const next = oshi[Math.min(oshi.length - 1, Math.max(0, Math.round(nav.scrollLeft / slot)))];
+      if (next && next.id !== active.id) router.replace(`/app?tab=${encodeURIComponent(next.id)}`, { scroll: false });
+    };
+    // scrollend に対応していないブラウザでは、動きが止まってから少し待って切り替える
+    const onScroll = () => {
+      clearTimeout(timer);
+      timer = setTimeout(settle, 180);
+    };
+    nav.addEventListener("scroll", onScroll, { passive: true });
+    nav.addEventListener("scrollend", settle);
+    return () => {
+      clearTimeout(timer);
+      nav.removeEventListener("scroll", onScroll);
+      nav.removeEventListener("scrollend", settle);
+    };
+  }, [oshi, active.id, router]);
+
+  // アイコンのタップ: そのアイコンを左端まで動かす(動き終えたら上の処理で切り替わる)
+  const selectTab = useCallback((target: string) => {
+    const nav = tabs.current;
+    const tab = nav?.querySelector<HTMLElement>(`[data-oshi="${CSS.escape(target)}"]`);
+    if (!nav || !tab) return;
+    nav.scrollTo({ left: tab.offsetLeft, behavior: "smooth" });
   }, []);
 
   // 登録したアカウントが「本人」か「どのグループ」のものか(今のアプリの登録から分かる)
@@ -403,9 +442,10 @@ export function SwipeFeed({
         if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 2) go(dx < 0 ? 1 : -1);
       }}
     >
-      {/* 上: 推しのアイコン(タップでその推しの新着を見る・取りに行く。長押しでSNSの登録) */}
+      {/* 上: 推しのアイコン(いちばん左の推しを再生。動かして左端に来た推しに切り替えて新着を取りに行く。長押しでSNSの登録) */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[calc(var(--bar)+2rem)] bg-gradient-to-b from-black/70 to-transparent" />
       <nav
+        ref={tabs}
         aria-label="推し"
         aria-busy={refreshing}
         className="absolute top-[env(safe-area-inset-top)] z-30 flex h-[calc(var(--slot)+8px)] snap-x snap-mandatory items-center overflow-x-auto [scrollbar-width:none]"
@@ -422,10 +462,13 @@ export function SwipeFeed({
               count={count}
               busy={on && refreshing}
               onRefresh={on ? () => void refresh() : undefined}
+              onSelect={() => selectTab(o.id)}
               tabRef={on ? activeTab : undefined}
             />
           );
         })}
+        {/* 最後の推しも左端まで動かせるように、右に余白を置く */}
+        <span aria-hidden className="shrink-0" style={{ width: "calc(var(--slot) * 4)", height: 1 }} />
       </nav>
       {note ? (
         <p className="absolute top-[var(--bar)] left-1/2 z-30 -translate-x-1/2 rounded-full bg-white px-4 py-1.5 text-[13px] font-bold whitespace-nowrap text-black">

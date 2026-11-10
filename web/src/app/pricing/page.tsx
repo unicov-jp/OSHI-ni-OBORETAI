@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PriceSimulator } from "@/components/price-simulator";
 import { buttonClass } from "@/components/ui";
-import { FREE_OSHI, getPriceTiers, yen } from "@/lib/pricing";
+import { FREE_OSHI, getPerOshiPrice, PAID_MAX_OSHI, yen } from "@/lib/pricing";
 
 export const metadata: Metadata = { title: "料金" };
 // 料金は管理画面で変えるので、開くたびに読み直す
 export const dynamic = "force-dynamic";
 
 // 料金ページ(ログインしていなくても見られる)。
-// 無料は推し3人まで。Subscription は登録する推しの人数で月額が変わる(金額は管理画面の「料金」で決める)。
+// 無料は推し3人まで。Subscription はそれを超えた推し1人ごとに月額を加算する(1人あたりの金額は管理画面の「料金」で決める)。
 // ▲▼で人数を変えると、その人数の月額を出す。Blog は登録できるが、ファンクラブ限定のこともあるため料金表には書かない
 
 const COMMON = [
@@ -27,8 +27,7 @@ function Check() {
 }
 
 export default async function PricingPage() {
-  const tiers = await getPriceTiers();
-  const lowest = tiers[0];
+  const perOshi = await getPerOshiPrice();
 
   return (
     <main className="mx-auto max-w-[760px] space-y-6 px-4 py-8">
@@ -38,7 +37,7 @@ export default async function PricingPage() {
         </Link>
         <h1 className="mt-1 text-2xl font-bold">料金</h1>
         <p className="mt-2 text-sm text-muted">
-          推し{FREE_OSHI}人までは無料です。それより多く登録するときは Subscription に切り替えます。月額は登録する推しの人数で変わります。
+          推し{FREE_OSHI}人までは無料です。それより多く登録するときは Subscription に切り替えます。月額は、増やした推しの人数ぶんだけ加算されます。
         </p>
       </div>
 
@@ -58,26 +57,15 @@ export default async function PricingPage() {
           <h2 className="text-lg font-bold">Subscription</h2>
           <span className="text-xs text-muted">推しが多い人に</span>
         </div>
-        {lowest ? (
+        {perOshi !== null ? (
           <>
             <p className="num mt-2 text-2xl font-bold">
-              月額{yen(lowest.monthly_yen)}
-              <span className="text-sm font-normal text-muted">〜</span>
+              推し1人あたり 月額{yen(perOshi)}
             </p>
-            <PriceSimulator tiers={tiers} freeOshi={FREE_OSHI} />
-            <ul className="mt-4 divide-y divide-line overflow-hidden rounded-xl bg-sunken">
-              {tiers.map((tier, i) => {
-                const from = (i === 0 ? FREE_OSHI : tiers[i - 1].max_oshi) + 1;
-                return (
-                  <li key={tier.max_oshi} className="num flex items-center justify-between gap-3 px-4 py-3">
-                    <span className="text-sm">
-                      推し <b className="text-base">{from}〜{tier.max_oshi}人</b>
-                    </span>
-                    <span className="text-base font-bold">月額{yen(tier.monthly_yen)}</span>
-                  </li>
-                );
-              })}
-            </ul>
+            <p className="num mt-1 text-sm text-muted">
+              無料の{FREE_OSHI}人を超えた人数ぶんだけ加算します(最大{PAID_MAX_OSHI}人)
+            </p>
+            <PriceSimulator perOshi={perOshi} freeOshi={FREE_OSHI} maxOshi={PAID_MAX_OSHI} />
             <p className="num mt-3 text-xs text-muted">SNSは300件まで。推しを増やすと、その人数の月額に自動で切り替わります。</p>
           </>
         ) : (

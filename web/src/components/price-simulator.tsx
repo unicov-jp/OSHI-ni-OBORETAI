@@ -2,12 +2,11 @@
 
 import { useState } from "react";
 
-// 料金の目安: ▲▼で推しの人数を変えると、その人数の月額を出す(段階は管理画面の「料金」で決める)
-export function PriceSimulator({ tiers, freeOshi }: { tiers: { max_oshi: number; monthly_yen: number }[]; freeOshi: number }) {
-  const max = tiers[tiers.length - 1]?.max_oshi ?? freeOshi;
-  const [count, setCount] = useState(Math.min(max, freeOshi + 1));
-  const tier = tiers.find((t) => count <= t.max_oshi);
-  const price = count <= freeOshi ? 0 : (tier?.monthly_yen ?? 0);
+// 料金の目安: ▲▼で推しの人数を変えると、月額を出す(無料の人数を超えた1人ごとに加算)
+export function PriceSimulator({ perOshi, freeOshi, maxOshi }: { perOshi: number; freeOshi: number; maxOshi: number }) {
+  const [count, setCount] = useState(freeOshi + 1);
+  const extra = Math.max(0, count - freeOshi);
+  const price = extra * perOshi;
   const step = "flex h-12 w-12 items-center justify-center rounded-full bg-sunken text-lg font-bold disabled:opacity-30 active:scale-95";
 
   return (
@@ -21,12 +20,12 @@ export function PriceSimulator({ tiers, freeOshi }: { tiers: { max_oshi: number;
           <span className="text-3xl font-bold">{count}</span>
           <span className="ml-1 text-sm">人</span>
         </p>
-        <button type="button" className={step} onClick={() => setCount((c) => Math.min(max, c + 1))} disabled={count >= max} aria-label="1人増やす">
+        <button type="button" className={step} onClick={() => setCount((c) => Math.min(maxOshi, c + 1))} disabled={count >= maxOshi} aria-label="1人増やす">
           ▲
         </button>
       </div>
       <p className="num mt-3 text-center" aria-live="polite">
-        {count <= freeOshi ? (
+        {extra === 0 ? (
           <span className="text-xl font-bold">無料</span>
         ) : (
           <>
@@ -35,7 +34,12 @@ export function PriceSimulator({ tiers, freeOshi }: { tiers: { max_oshi: number;
           </>
         )}
       </p>
-      {count >= max ? <p className="mt-1 text-center text-[11px] text-muted">登録できるのは{max}人までです</p> : null}
+      <p className="num mt-1 text-center text-[11px] text-muted">
+        {extra === 0
+          ? `${freeOshi}人までは無料です`
+          : `無料の${freeOshi}人 ＋ ${extra}人 × ${perOshi.toLocaleString("ja-JP")}円`}
+        {count >= maxOshi ? `(${maxOshi}人まで)` : ""}
+      </p>
     </div>
   );
 }

@@ -639,35 +639,38 @@ grant execute on function public.oshikatsu_bump_api_usage(text, int) to service_
 grant execute on function public.oshikatsu_cleanup_old_data(int) to service_role;
 grant execute on function public.oshikatsu_claim_user_feeds(uuid, int, int) to service_role;
 
--- ============ Subscription の料金(推しの人数ごと) ============
--- 例: 推し10人まで 月額◯円、30人まで 月額◯円…。管理画面の「料金」から変える。料金ページはログインしていなくても読める
-create table if not exists public.oshikatsu_price_tiers (
-  max_oshi    int         primary key check (max_oshi between 4 and 1000), -- この人数まで
-  monthly_yen int         not null check (monthly_yen between 0 and 1000000),
-  updated_at  timestamptz not null default now()
-);
-alter table public.oshikatsu_price_tiers enable row level security;
-drop policy if exists "oshikatsu_price_tiers_select" on public.oshikatsu_price_tiers;
-create policy "oshikatsu_price_tiers_select" on public.oshikatsu_price_tiers for select to anon, authenticated using (true);
-revoke all on public.oshikatsu_price_tiers from anon, authenticated;
-grant select on public.oshikatsu_price_tiers to anon, authenticated;
+-- ============ Subscription の料金(推し1人ごとの加算) ============
+-- 無料の人数(3人)を超えた推し1人ごとに、月額◯円を加算する。管理画面の「料金」から変える。料金ページはログインしていなくても読める
+-- (以前の段階制の表 oshikatsu_price_tiers は使わないので消す)
+drop function if exists public.oshikatsu_admin_set_price_tiers(jsonb);
+drop table if exists public.oshikatsu_price_tiers;
 
--- 運営者向け：料金をまとめて置き換える([{"max_oshi":10,"monthly_yen":300}, ...])。操作ログに残す
-create or replace function public.oshikatsu_admin_set_price_tiers(tiers jsonb) returns void
+create table if not exists public.oshikatsu_price_settings (
+  id           boolean     primary key default true check (id),  -- 1行だけ
+  per_oshi_yen int         not null check (per_oshi_yen between 0 and 100000),
+  updated_at   timestamptz not null default now()
+);
+alter table public.oshikatsu_price_settings enable row level security;
+drop policy if exists "oshikatsu_price_settings_select" on public.oshikatsu_price_settings;
+create policy "oshikatsu_price_settings_select" on public.oshikatsu_price_settings for select to anon, authenticated using (true);
+revoke all on public.oshikatsu_price_settings from anon, authenticated;
+grant select on public.oshikatsu_price_settings to anon, authenticated;
+
+-- 運営者向け：推し1人あたりの月額を変える。操作ログに残す
+create or replace function public.oshikatsu_admin_set_price(per_oshi int) returns void
 language plpgsql security definer set search_path = '' as $$
 begin
   if not public.oshikatsu_is_admin() then
     raise exception 'FORBIDDEN' using errcode = '42501';
   end if;
-  if jsonb_typeof(tiers) <> 'array' or jsonb_array_length(tiers) > 10 then
-    raise exception 'INVALID_TIERS' using errcode = 'P0001';
+  if per_oshi is null or per_oshi < 0 or per_oshi > 100000 then
+    raise exception 'INVALID_PRICE' using errcode = 'P0001';
   end if;
-  delete from public.oshikatsu_price_tiers where true;
-  insert into public.oshikatsu_price_tiers (max_oshi, monthly_yen)
-  select (t->>'max_oshi')::int, (t->>'monthly_yen')::int from jsonb_array_elements(tiers) t;
+  insert into public.oshikatsu_price_settings (id, per_oshi_yen, updated_at) values (true, per_oshi, now())
+  on conflict (id) do update set per_oshi_yen = excluded.per_oshi_yen, updated_at = now();
   insert into public.oshikatsu_audit_logs (admin_id, action, target, detail)
-  values ((select auth.uid()), 'price.tiers', 'subscription', tiers::text);
+  values ((select auth.uid()), 'price.per_oshi', 'subscription', per_oshi::text);
 end;
 $$;
-revoke all on function public.oshikatsu_admin_set_price_tiers(jsonb) from public, anon;
-grant execute on function public.oshikatsu_admin_set_price_tiers(jsonb) to authenticated;
+revoke all on function public.oshikatsu_admin_set_price(int) from public, anon;
+grant execute on function public.oshikatsu_admin_set_price(int) to authenticated;

@@ -14,6 +14,7 @@ const ACTION_LABEL: Record<string, string> = {
   "feed.refetch": "取得元を手動取得",
   "user.plan": "プランを変更",
   "price.tiers": "料金を変更",
+  "price.per_oshi": "料金(1人あたり)を変更",
 };
 
 export default async function AdminLogsPage({

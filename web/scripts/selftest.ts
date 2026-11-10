@@ -117,6 +117,11 @@ async function main() {
     postCodesFromEmbed('{"shortcode":"DAbc123xyz"} <a href="/p/DAbc123xyz/"> https:\\/\\/www.instagram.com\\/reel\\/CReel99abc\\/ <a href="/p/C2second_1/">'),
     ["DAbc123xyz", "CReel99abc", "C2second_1"],
   );
+  check(
+    "Instagram 投稿コード(文字列の中のJSON)",
+    postCodesFromEmbed('"contextJSON":"{\\"shortcode\\":\\"DEsc4ped01\\",\\"url\\":\\"https:\\\\/\\\\/www.instagram.com\\\\/p\\\\/DEsc4ped02\\\\/\\"}"'),
+    ["DEsc4ped01", "DEsc4ped02"],
+  );
   check("Instagram 投稿なし", postCodesFromEmbed("<html></html>"), []);
 
   // --- 推しの記録の読み書き(今のアプリと共通) ---

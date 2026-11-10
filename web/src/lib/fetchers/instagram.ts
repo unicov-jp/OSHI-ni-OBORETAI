@@ -14,10 +14,26 @@ export function postCodesFromEmbed(html: string): string[] {
   const add = (code: string) => {
     if (!codes.includes(code)) codes.push(code);
   };
-  for (const match of html.matchAll(/"shortcode"\s*:\s*"([A-Za-z0-9_-]{6,20})"/g)) add(match[1]);
-  for (const match of html.matchAll(/instagram\.com\\?\/(?:p|reel)\\?\/([A-Za-z0-9_-]{6,20})/g)) add(match[1]);
-  for (const match of html.matchAll(/href="\/(?:p|reel)\/([A-Za-z0-9_-]{6,20})\//g)) add(match[1]);
+  // ページの中では、JSON が文字列の中にさらに入っていて引用符や / が「\"」「\/」のように書かれていることがある
+  const patterns = [
+    /shortcode\\*"\s*:\s*\\*"([A-Za-z0-9_-]{6,20})/g,
+    /\\*"code\\*"\s*:\s*\\*"([A-Za-z0-9_-]{8,20})\\*"/g,
+    /\/(?:p|reel|tv)\\*\/([A-Za-z0-9_-]{6,20})(?=\\*\/|\?|")/g,
+    /\\u002F(?:p|reel)\\u002F([A-Za-z0-9_-]{6,20})/g,
+  ];
+  for (const pattern of patterns) for (const match of html.matchAll(pattern)) add(match[1]);
   return codes.slice(0, MAX_POSTS);
+}
+
+// 確認用: 投稿の手がかりになりそうな部分を少しだけ切り出す(個人情報になりうる本文は出さない)
+function hints(html: string): Record<string, unknown> {
+  const marks = ["shortcode", "/p/", "\\/p\\/", "u002Fp", "edge_owner", "\"code\"", "EmbedSimple", "Media", "contextJSON", "gql_data"];
+  const result: Record<string, unknown> = {};
+  for (const mark of marks) {
+    const at = html.indexOf(mark);
+    result[mark] = at < 0 ? null : html.slice(Math.max(0, at - 40), at + 80).replace(/[^\x20-\x7E]/g, "?");
+  }
+  return result;
 }
 
 // 読み取りの様子(マスター向けの確認用)。中身は返さず、転送先・大きさ・見つかった件数だけ
@@ -31,6 +47,7 @@ export async function instagramProbe(handle: string): Promise<Record<string, unk
       bytes: page.text.length,
       loginWall: /accounts\/login|loginForm/i.test(page.text),
       codes: postCodesFromEmbed(page.text).length,
+      hints: hints(page.text),
     };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "取得できませんでした" };

@@ -5,11 +5,20 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: { default: "推しに溺れたい", template: "%s | 推しに溺れたい" },
   description: "推しのSNSとBlogを、ひとりずつ1つのタブにまとめて追いかけるためのアプリ。",
+  applicationName: "推しに溺れたい",
+  // ホーム画面に追加したときの名前(iPhone)とアイコン
+  appleWebApp: { capable: true, title: "推しに溺れたい", statusBarStyle: "black-translucent" },
+  icons: {
+    icon: [{ url: "/icons/favicon-32.png", sizes: "32x32", type: "image/png" }],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // 画面の端(ノッチ・ホームバーの下)まで使い、はみ出す分は safe-area で避ける
+  viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f1f7f9" },
     { media: "(prefers-color-scheme: dark)", color: "#06141f" },

@@ -16,7 +16,7 @@ export function Wordmark({ href = "/" }: { href?: string }) {
 export function Header({ viewer, items, home }: { viewer: Viewer; items: NavItem[]; home: string }) {
   const name = viewer.displayName || viewer.email;
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-surface">
+    <header className="sticky top-0 z-30 border-b border-line bg-surface pt-[env(safe-area-inset-top)]">
       <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-4 px-4">
         <Wordmark href={home} />
         {viewer.isDemo ? <Badge tone="warn">デモ表示</Badge> : null}

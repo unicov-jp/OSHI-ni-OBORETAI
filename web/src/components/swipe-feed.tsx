@@ -34,6 +34,13 @@ type Props = {
 };
 
 const EMBED_PLATFORMS: Platform[] = ["x", "instagram", "tiktok"];
+
+// 縦長の動画(ショート・TikTok)の枠。画面の高さいっぱいを使い、縦長の端末では左右を少しだけ(最大12%)はみ出させて
+// 上下の余りを減らす。はみ出しすぎないよう、高さは「幅の16/9倍の1.12倍」までにする。
+const VERTICAL_FRAME = {
+  aspectRatio: "9 / 16",
+  height: "min(100%, calc(100vw * 16 / 9 * 1.12))",
+} as const;
 // 新着(動画・記事)何件ごとに、X・Instagram・TikTok の画面を1枚はさむか
 const EMBED_EVERY = 3;
 
@@ -261,8 +268,8 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
       }}
     >
       {/* 上: 推しのタブ(推し単位のみ)と更新 */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-28 bg-gradient-to-b from-black/70 to-transparent" />
-      <nav aria-label="推し" className="scroll-x absolute inset-x-0 top-0 z-30 flex h-16 items-center gap-1 pr-16 pl-2">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[calc(7rem+env(safe-area-inset-top))] bg-gradient-to-b from-black/70 to-transparent" />
+      <nav aria-label="推し" className="scroll-x absolute inset-x-0 top-[env(safe-area-inset-top)] z-30 flex h-16 items-center gap-1 pr-16 pl-2">
         {oshi.map((o) => {
           const on = o.id === active.id;
           const count = unread[o.id] ?? 0;
@@ -288,14 +295,14 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
           );
         })}
       </nav>
-      <div className="pointer-events-none absolute top-0 right-0 z-30 h-16 w-20 bg-gradient-to-l from-black via-black/80 to-transparent" />
+      <div className="pointer-events-none absolute top-[env(safe-area-inset-top)] right-0 z-30 h-16 w-20 bg-gradient-to-l from-black via-black/80 to-transparent" />
       <button
         type="button"
         onClick={refresh}
         disabled={refreshing}
         aria-label="新着を取りに行く"
         title="新着を取りに行く"
-        className="absolute top-[10px] right-2 z-30 flex h-11 w-11 items-center justify-center rounded-full border border-white/25 bg-white/10 text-white shadow-[0_4px_16px_rgba(0,0,0,.4)] backdrop-blur-md transition active:scale-90 disabled:opacity-70"
+        className="absolute top-[calc(10px+env(safe-area-inset-top))] right-2 z-30 flex h-11 w-11 items-center justify-center rounded-full border border-white/25 bg-white/10 text-white shadow-[0_4px_16px_rgba(0,0,0,.4)] backdrop-blur-md transition active:scale-90 disabled:opacity-70"
       >
         <svg
           viewBox="0 0 24 24"
@@ -403,10 +410,9 @@ const ICON = {
 
 // 右側のボタン(推しのアイコン・開く・共有・ミュート・設定・管理)
 function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: string }) {
-  const { muted, toggleMute, activated, isAdmin } = useContext(Controls);
-  // 音の状態はボタンの色で示す: 音あり=白っぽい / ミュート中=ピンク / まだ音を出せない=黄色(押すと音が出る)
-  const blocked = !muted && !activated;
-  const soundTone = muted ? "bg-[#ff2d6f] text-white" : blocked ? "bg-[#ffc531] text-black animate-pulse" : "bg-white/15";
+  const { muted, toggleMute, isAdmin } = useContext(Controls);
+  // 音の状態はボタンの色で示す: 音あり=白っぽい / ミュート中=ピンク
+  const soundTone = muted ? "bg-[#ff2d6f] text-white" : "bg-white/15";
   const [copied, setCopied] = useState(false);
   const share = async () => {
     try {
@@ -423,7 +429,7 @@ function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: str
   const round = "flex h-11 w-11 items-center justify-center rounded-full bg-white/15 backdrop-blur";
   const item = "flex flex-col items-center gap-1";
   return (
-    <div className="absolute right-3 bottom-8 z-10 flex flex-col items-center gap-4 text-[10.5px] font-bold [text-shadow:0_1px_3px_rgba(0,0,0,.6)]">
+    <div className="absolute right-3 bottom-[calc(2rem+env(safe-area-inset-bottom))] z-10 flex flex-col items-center gap-4 text-[10.5px] font-bold [text-shadow:0_1px_3px_rgba(0,0,0,.6)]">
       <OshiAvatar oshi={oshi} size={46} />
       <a href={url} target="_blank" rel="noopener noreferrer" className={item}>
         <span className={round}>
@@ -442,12 +448,12 @@ function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: str
         onClick={toggleMute}
         className={item}
         aria-pressed={muted}
-        aria-label={muted ? "ミュート中(押すと音が出ます)" : blocked ? "音を出す" : "ミュートする"}
+        aria-label={muted ? "ミュート中(押すと音が出ます)" : "ミュートする"}
       >
         <span className={`flex h-11 w-11 items-center justify-center rounded-full backdrop-blur ${soundTone}`}>
-          <Icon d={muted || blocked ? ICON.muted : ICON.sound} />
+          <Icon d={muted ? ICON.muted : ICON.sound} />
         </span>
-        {muted ? "ミュート中" : blocked ? "音を出す" : "音あり"}
+        {muted ? "ミュート中" : "音あり"}
       </button>
       {/* マスターは「管理」(設定も管理の中から開ける)、それ以外は「設定」 */}
       {isAdmin ? (
@@ -474,7 +480,7 @@ function Info({ platform, oshi, from, time, title, isNew }: {
 }) {
   const label = fromLabel(from);
   return (
-    <div className="pointer-events-none absolute right-20 bottom-6 left-4 z-10 [text-shadow:0_1px_4px_rgba(0,0,0,.7)]">
+    <div className="pointer-events-none absolute right-20 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-4 z-10 [text-shadow:0_1px_4px_rgba(0,0,0,.7)]">
       <span className="inline-flex h-6 items-center rounded-md bg-white/20 px-2 text-[11px] font-extrabold backdrop-blur">
         {platform}
       </span>
@@ -573,8 +579,8 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
       {/* 背景: サムネイルをぼかして敷く */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={thumb} alt="" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-50 blur-2xl" />
-      <div className={short ? "absolute inset-0 flex items-center justify-center" : "absolute inset-x-0 top-1/2 -translate-y-[58%]"}>
-        <div className={short ? "relative aspect-[9/16] h-full max-w-full" : "relative aspect-video w-full"}>
+      <div className={short ? "absolute inset-0 flex items-center justify-center overflow-hidden" : "absolute inset-x-0 top-1/2 -translate-y-[58%]"}>
+        <div className={short ? "relative shrink-0" : "relative aspect-video w-full"} style={short ? VERTICAL_FRAME : undefined}>
           {near ? (
             live ? (
               <iframe
@@ -776,8 +782,8 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
   return (
     <>
       <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 50% 20%, ${oshi.color}66, #000 70%)` }} />
-      <div className="absolute inset-x-0 top-16 bottom-0 flex items-center justify-center">
-        <div className="relative aspect-[9/16] h-full max-w-full">
+      <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+        <div className="relative shrink-0" style={VERTICAL_FRAME}>
           {live ? (
             <iframe
               ref={frame}

@@ -16,7 +16,7 @@ export function DrivePanel({ connected, available }: { connected: boolean; avail
         <div className="min-w-0">
           <p className="text-sm font-semibold">Googleドライブ</p>
           <p className="mt-1 text-xs leading-relaxed text-muted">
-            ギャラリー・チェキ・LIVEのポスター・推しのアイコンの写真を、Google アカウントに紐づく Google ドライブの「推しに溺れたいapp」フォルダに保存します。
+            写真は Google ドライブの「推しに溺れたいapp」フォルダに保存します。
           </p>
         </div>
         <span className={`shrink-0 text-xs font-bold ${connected ? "text-ok" : "text-muted"}`}>{connected ? "接続中" : "未接続"}</span>

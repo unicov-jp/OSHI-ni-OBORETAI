@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DEMO } from "@/lib/env";
+import { DEMO, siteUrl } from "@/lib/env";
 import { driveConfigured } from "@/lib/google-drive";
 import { createClient } from "@/lib/supabase/server";
 
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
   const state = crypto.randomUUID();
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_OAUTH_CLIENT_ID ?? "",
-    redirect_uri: `${origin}/api/drive/callback`,
+    redirect_uri: driveCallbackUrl(origin),
     response_type: "code",
     scope: "https://www.googleapis.com/auth/drive.file",
     access_type: "offline",
@@ -42,4 +42,10 @@ export async function GET(request: Request) {
     maxAge: 600,
   });
   return response;
+}
+
+// Google に登録した戻り先URIとそろえる: サイトのURL(NEXT_PUBLIC_SITE_URL)が決まっていればそれ、無ければ開いているURL
+function driveCallbackUrl(origin: string): string {
+  const base = process.env.NEXT_PUBLIC_SITE_URL ? siteUrl() : origin;
+  return `${base}/api/drive/callback`;
 }

@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { siteUrl } from "@/lib/env";
 import { NextResponse } from "next/server";
 import { driveConfigured, forgetDriveToken } from "@/lib/google-drive";
 import { createClient } from "@/lib/supabase/server";
@@ -40,7 +41,7 @@ export async function GET(request: Request) {
       code,
       client_id: process.env.GOOGLE_OAUTH_CLIENT_ID ?? "",
       client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? "",
-      redirect_uri: `${origin}/api/drive/callback`,
+      redirect_uri: driveCallbackUrl(origin),
       grant_type: "authorization_code",
     }).toString(),
     signal: AbortSignal.timeout(15_000),
@@ -63,4 +64,10 @@ export async function GET(request: Request) {
   }
   forgetDriveToken(user.id);
   return done("drive-connected");
+}
+
+// Google に登録した戻り先URIとそろえる: サイトのURL(NEXT_PUBLIC_SITE_URL)が決まっていればそれ、無ければ開いているURL
+function driveCallbackUrl(origin: string): string {
+  const base = process.env.NEXT_PUBLIC_SITE_URL ? siteUrl() : origin;
+  return `${base}/api/drive/callback`;
 }

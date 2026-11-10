@@ -44,11 +44,13 @@ export async function driveAccessToken(supabase: SupabaseClient, userId: string)
   return body.access_token;
 }
 
-// ---- 写真の保存(今のアプリと同じ置き場所: 「推し活手帳」フォルダの中の Gallery・チェキ・LIVE) ----
+// ---- 写真の保存(今のアプリと同じ置き場所: 「推しに溺れたいapp」フォルダの中の Gallery・チェキ・LIVE) ----
 // 権限は drive.file(このアプリが作ったファイル・フォルダだけを扱える)。今のアプリと同じ OAuth クライアントを使うので、
 // 今のアプリが作ったフォルダをそのまま使える。
 
-const ROOT_FOLDER = "推し活手帳";
+const ROOT_FOLDER = "推しに溺れたいapp";
+// 以前のフォルダ名。新しい名前のフォルダが無く、こちらがあれば改名して使う(今のアプリと同じ動き)
+const OLD_ROOT_FOLDER = "推し活手帳";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const folderCache = new Map<string, string>();
 
@@ -63,10 +65,7 @@ async function driveJson(token: string, url: string, init: RequestInit = {}): Pr
   return (await response.json()) as Record<string, unknown>;
 }
 
-async function ensureFolder(token: string, userId: string, name: string, parent: string | null): Promise<string> {
-  const cacheKey = `${userId}:${parent ?? "root"}:${name}`;
-  const hit = folderCache.get(cacheKey);
-  if (hit) return hit;
+async function findFolder(token: string, name: string, parent: string | null): Promise<string | undefined> {
   const q = [`name='${name.replace(/'/g, "\\'")}'`, `mimeType='${FOLDER_MIME}'`, "trashed=false", parent ? `'${parent}' in parents` : ""]
     .filter(Boolean)
     .join(" and ");
@@ -74,8 +73,26 @@ async function ensureFolder(token: string, userId: string, name: string, parent:
     token,
     `https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=${encodeURIComponent(q)}`,
   );
-  const files = (found.files as { id: string }[] | undefined) ?? [];
-  let id = files[0]?.id;
+  return ((found.files as { id: string }[] | undefined) ?? [])[0]?.id;
+}
+
+async function ensureFolder(token: string, userId: string, name: string, parent: string | null): Promise<string> {
+  const cacheKey = `${userId}:${parent ?? "root"}:${name}`;
+  const hit = folderCache.get(cacheKey);
+  if (hit) return hit;
+  let id = await findFolder(token, name, parent);
+  // いちばん上のフォルダ: 以前の名前のフォルダがあれば、新しい名前に改名して使う
+  if (!id && parent === null && name === ROOT_FOLDER) {
+    const old = await findFolder(token, OLD_ROOT_FOLDER, null);
+    if (old) {
+      await driveJson(token, `https://www.googleapis.com/drive/v3/files/${old}?fields=id`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: ROOT_FOLDER }),
+      });
+      id = old;
+    }
+  }
   if (!id) {
     const created = await driveJson(token, "https://www.googleapis.com/drive/v3/files?fields=id", {
       method: "POST",

@@ -539,11 +539,18 @@ begin
 end;
 $$;
 
--- 運営者向け：利用者の一覧（推し・SNSは件数だけ。中身は見ない）
-create or replace function public.oshikatsu_admin_list_users(search text default '', page_size int default 50, page_offset int default 0)
+-- 決済状況(Stripe)。値を書き込むのは Stripe の Webhook(サーバーの秘密鍵)だけで、利用者本人は書き換えられない(更新の権限は plan 列だけ)
+alter table public.oshikatsu_profiles
+  add column if not exists stripe_customer_id text,
+  add column if not exists billing_status text,            -- Stripe の契約の状態(active / trialing / past_due / canceled / unpaid / incomplete など)
+  add column if not exists billing_period_end timestamptz; -- 次の更新日(解約済みなら利用できる最終日)
+
+-- 運営者向け：利用者の一覧(メール・プラン・決済状況。推し・SNSは件数だけで中身は見ない)。返す列を変えたため、いったん消して作り直す
+drop function if exists public.oshikatsu_admin_list_users(text, int, int);
+create function public.oshikatsu_admin_list_users(search text default '', page_size int default 50, page_offset int default 0)
 returns table (
-  id uuid, email text, display_name text, plan text, suspended_at timestamptz, created_at timestamptz,
-  oshi_count int, source_count int
+  id uuid, email text, plan text, billing_status text, billing_period_end timestamptz,
+  suspended_at timestamptz, created_at timestamptz, oshi_count int, source_count int
 )
 language plpgsql stable security definer set search_path = '' as $$
 begin
@@ -552,13 +559,12 @@ begin
   end if;
   return query
   select
-    p.user_id, coalesce(p.email, ''), p.display_name, p.plan, p.suspended_at, p.created_at,
+    p.user_id, coalesce(p.email, ''), p.plan, p.billing_status, p.billing_period_end, p.suspended_at, p.created_at,
     (select count(*)::int from public.oshikatsu_records r where r.user_id = p.user_id and r.kind = 'oshi' and not r.deleted),
     (select count(*)::int from public.oshikatsu_sources s where s.user_id = p.user_id)
   from public.oshikatsu_profiles p
   where coalesce(search, '') = ''
     or p.email ilike '%' || search || '%'
-    or p.display_name ilike '%' || search || '%'
   order by case p.plan when 'master' then 1 when 'paid' then 2 else 3 end, p.created_at desc
   limit least(greatest(page_size, 1), 200) offset greatest(page_offset, 0);
 end;

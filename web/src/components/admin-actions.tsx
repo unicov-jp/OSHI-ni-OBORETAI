@@ -53,8 +53,6 @@ export function UserActions({ user, selfId }: { user: AdminUser; selfId: string 
       <Dialog open={open} onClose={() => setOpen(false)} title={user.email}>
         <div className="space-y-4">
           <dl className="grid grid-cols-[88px_minmax(0,1fr)] gap-y-2 text-sm">
-            <dt className="text-muted">表示名</dt>
-            <dd className="[overflow-wrap:anywhere]">{user.display_name || "未設定"}</dd>
             <dt className="text-muted">メール</dt>
             <dd className="[overflow-wrap:anywhere]">{user.email}</dd>
             <dt className="text-muted">登録数</dt>

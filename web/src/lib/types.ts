@@ -89,7 +89,9 @@ export type AdminStats = {
 export type AdminUser = {
   id: string;
   email: string;
-  display_name: string;
+  // 決済状況(Stripe の契約の状態。契約が無ければ null)と、次の更新日
+  billing_status?: string | null;
+  billing_period_end?: string | null;
   suspended_at: string | null;
   created_at: string;
   plan: Plan;

@@ -503,6 +503,7 @@ function Icon({ d }: { d: string[] }) {
 const ICON = {
   open: ["M14 4h6v6", "M20 4l-9 9", "M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"],
   share: ["M12 3v12", "M7 8l5-5 5 5", "M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"],
+  heart: ["M12 20s-7-4.4-9.2-9A5 5 0 0 1 12 6a5 5 0 0 1 9.2 5c-2.2 4.6-9.2 9-9.2 9z"],
   sound: ["M4 9v6h4l5 4V5L8 9H4z", "M16.5 8.5a5 5 0 0 1 0 7", "M19 6a8.5 8.5 0 0 1 0 12"],
   muted: ["M4 9v6h4l5 4V5L8 9H4z", "M17 9l5 5", "M22 9l-5 5"],
   settings: [
@@ -511,6 +512,59 @@ const ICON = {
   ],
   admin: ["M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z", "M9 12l2 2 4-4"],
 };
+
+type SheetItem = { label: string; note?: string; href?: string; onSelect?: () => void };
+
+// 下から出るメニュー(共有・反応など)。画面全体のいちばん上に出す
+function Sheet({ title, items, onClose }: { title: string; items: SheetItem[]; onClose: () => void }) {
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-end bg-black/60 text-white" onClick={onClose} role="presentation">
+      <div
+        role="dialog"
+        aria-label={title}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full rounded-t-3xl bg-[#111] px-4 pt-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-2xl"
+      >
+        <span aria-hidden className="mx-auto mb-3 block h-1 w-10 rounded-full bg-white/25" />
+        <p className="mb-3 px-1 text-[15px] font-bold">{title}</p>
+        <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
+          {items.map((item) => (
+            <li key={item.label}>
+              {item.href ? (
+                <a
+                  href={item.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={onClose}
+                  className="flex min-h-[56px] flex-col justify-center px-4 py-2 active:bg-white/10"
+                >
+                  <span className="text-[15px] font-semibold">{item.label}</span>
+                  {item.note ? <span className="truncate text-xs text-white/55">{item.note}</span> : null}
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    item.onSelect?.();
+                    onClose();
+                  }}
+                  className="flex min-h-[56px] w-full flex-col justify-center px-4 py-2 text-left active:bg-white/10"
+                >
+                  <span className="text-[15px] font-semibold">{item.label}</span>
+                  {item.note ? <span className="truncate text-xs text-white/55">{item.note}</span> : null}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        <button type="button" onClick={onClose} className="mt-3 h-12 w-full rounded-2xl bg-white/10 text-[15px] font-semibold">
+          閉じる
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 // 推しのメニュー(右下の推しのアイコンの長押し)。今のアプリ(推し活手帳)の機能は、ここに順に集めていく
 function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
@@ -551,7 +605,10 @@ function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
 }
 
 // 右側のボタン(推しのアイコン・開く・共有・ミュート・設定・管理)
-function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: string }) {
+// reactions: ❤ で出す反応(いいね・リポスト・コメントなど)。各SNSの公式の画面を開いて行う
+function SideActions({ oshi, url, title, platform, reactions }: {
+  oshi: Oshi; url: string; title: string; platform: string; reactions?: SheetItem[];
+}) {
   const { muted, toggleMute, isAdmin } = useContext(Controls);
   const router = useRouter();
   const [menu, setMenu] = useState(false);
@@ -561,19 +618,25 @@ function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: str
   const newPress = useLongPress(() => router.push("/app/manage?new=1"));
   // 音の状態はボタンの色で示す: 音あり=白っぽい / ミュート中=ピンク
   const soundTone = muted ? "bg-[#ff2d6f] text-white" : "bg-white/15";
+  const [sheet, setSheet] = useState<"share" | "react" | null>(null);
   const [copied, setCopied] = useState(false);
-  const share = async () => {
+  const copy = async () => {
     try {
-      if (navigator.share) await navigator.share({ title, url });
-      else {
-        await navigator.clipboard.writeText(url);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
-      // 共有をやめた場合は何もしない
+      // コピーできない環境では何もしない
     }
   };
+  const shareItems: SheetItem[] = [
+    { label: `${platform}で開く`, note: url.replace(/^https?:\/\/(www\.)?/, ""), href: url },
+    ...(typeof navigator !== "undefined" && "share" in navigator
+      ? [{ label: "共有", note: "LINE・メッセージなどに送る", onSelect: () => void navigator.share({ title, url }).catch(() => {}) }]
+      : []),
+    { label: "リンクをコピー", onSelect: () => void copy() },
+  ];
+  const reactItems: SheetItem[] = reactions ?? [{ label: `${platform}でいいね・コメント`, note: "元の投稿を開きます", href: url }];
   const round = "flex h-11 w-11 items-center justify-center rounded-full bg-white/15 backdrop-blur";
   const item = "flex flex-col items-center gap-1";
   return (
@@ -589,18 +652,20 @@ function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: str
       </button>
       {/* メニューは画面全体のいちばん上に出す(ほかの表示と重ならないよう、ページの最上位に置く) */}
       {menu ? createPortal(<OshiMenu oshi={oshi} onClose={() => setMenu(false)} />, document.body) : null}
-      <a href={url} target="_blank" rel="noopener noreferrer" className={item}>
+      <button type="button" onClick={() => setSheet("react")} className={item} aria-label="いいね・コメントなど">
         <span className={round}>
-          <Icon d={ICON.open} />
+          <Icon d={ICON.heart} />
         </span>
-        開く
-      </a>
-      <button type="button" onClick={share} className={item}>
+        反応
+      </button>
+      <button type="button" onClick={() => setSheet("share")} className={item} aria-label="開く・共有・リンクをコピー">
         <span className={round}>
           <Icon d={ICON.share} />
         </span>
         {copied ? "コピー済み" : "共有"}
       </button>
+      {sheet === "share" ? <Sheet title="開く・共有" items={shareItems} onClose={() => setSheet(null)} /> : null}
+      {sheet === "react" ? <Sheet title={`${platform}で反応する`} items={reactItems} onClose={() => setSheet(null)} /> : null}
       <button
         type="button"
         onClick={toggleMute}
@@ -733,7 +798,7 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
           <p className="truncate text-xs font-extrabold tracking-wide text-white/80">BLOG ・ {hostOf(item.url)}</p>
           <p className="mt-4 line-clamp-[8] text-[26px] leading-[1.45] font-black [text-shadow:0_2px_12px_rgba(0,0,0,.35)]">{title}</p>
         </a>
-        <SideActions oshi={oshi} url={item.url} title={title} />
+        <SideActions oshi={oshi} url={item.url} title={title} platform="Blog" reactions={[{ label: "記事を開いてコメント・いいね", note: hostOf(item.url), href: item.url }]} />
         <Info platform="Blog" oshi={oshi} from={from} time={time} isNew={isNew} />
       </>
     );
@@ -780,7 +845,16 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
         className="absolute inset-0 z-[5] cursor-pointer"
       />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
-      <SideActions oshi={oshi} url={item.url} title={title} />
+      <SideActions
+        oshi={oshi}
+        url={item.url}
+        title={title}
+        platform="YouTube"
+        reactions={[
+          { label: "YouTubeで高く評価(いいね)・コメント", note: "YouTube を開きます", href: item.url },
+          { label: "チャンネル登録", note: "YouTube を開きます", href: `${item.url}${item.url.includes("?") ? "&" : "?"}sub_confirmation=1` },
+        ]}
+      />
       <Info platform={short ? "YouTube ショート" : "YouTube"} oshi={oshi} from={from} time={time} title={title} isNew={isNew} />
     </>
   );
@@ -798,7 +872,7 @@ function EmbedSlide({ source, from, oshi, live }: { source: Source; from: string
           <div className="flex h-full items-center justify-center text-sm text-black/50">{PLATFORM_LABEL[source.platform]}</div>
         )}
       </div>
-      <SideActions oshi={oshi} url={source.url} title={`${oshi.name}の${PLATFORM_LABEL[source.platform]}`} />
+      <SideActions oshi={oshi} url={source.url} title={`${oshi.name}の${PLATFORM_LABEL[source.platform]}`} platform={PLATFORM_LABEL[source.platform]} />
       <Info
         platform={PLATFORM_LABEL[source.platform]}
         oshi={oshi}
@@ -880,7 +954,7 @@ function InstaSlide({ source, code, from, oshi, near }: { source: Source; code: 
         </>
       )}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent" />
-      <SideActions oshi={oshi} url={url} title={`${oshi.name}のInstagramの投稿`} />
+      <SideActions oshi={oshi} url={url} title={`${oshi.name}のInstagramの投稿`} platform="Instagram" />
       <Info platform="Instagram" oshi={oshi} from={from} time="" title={source.handle ? `Instagram ${source.handle}` : undefined} isNew={false} />
     </>
   );
@@ -1058,7 +1132,17 @@ function TweetSlide({ source, id, at, from, oshi, near, live }: {
         </>
       )}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black to-transparent" />
-      <SideActions oshi={oshi} url={url} title={`${oshi.name}のXの投稿`} />
+      <SideActions
+        oshi={oshi}
+        url={url}
+        title={`${oshi.name}のXの投稿`}
+        platform="X"
+        reactions={[
+          { label: "いいね", note: "X の画面で確定します", href: `https://x.com/intent/like?tweet_id=${id}` },
+          { label: "リポスト(リツイート)", note: "X の画面で確定します", href: `https://x.com/intent/retweet?tweet_id=${id}` },
+          { label: "返信(コメント)", note: "X の画面で書きます", href: `https://x.com/intent/tweet?in_reply_to=${id}` },
+        ]}
+      />
       <Info platform="X" oshi={oshi} from={from} time={formatRelative(at)} isNew={at > oshi.last_seen_at} />
     </>
   );
@@ -1125,7 +1209,7 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
       {/* 動画の上の透明な層: 上下のスワイプを受け取り、タップで音を切り替える */}
       <button type="button" aria-label={muted ? "音を出す" : "音を消す"} onClick={onToggleSound} className="absolute inset-0 z-[5] cursor-pointer" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent" />
-      <SideActions oshi={oshi} url={url} title={`${oshi.name}のTikTok`} />
+      <SideActions oshi={oshi} url={url} title={`${oshi.name}のTikTok`} platform="TikTok" />
       <Info platform="TikTok" oshi={oshi} from={from} time={at ? formatRelative(at) : ""} title={`TikTok @${handle}`} isNew={at ? at > oshi.last_seen_at : false} />
     </>
   );

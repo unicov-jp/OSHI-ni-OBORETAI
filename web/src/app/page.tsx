@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { Wordmark } from "@/components/header";
@@ -6,6 +7,9 @@ import { Reveal, ViewModeShowcase } from "@/components/landing/scroll";
 import { buttonClass } from "@/components/ui";
 import { DEMO } from "@/lib/env";
 
+// アプリの入口(TOP)。ログインしていない人が最初に見るページ。ログイン済みの人は投稿の画面へ移る(proxy.ts)
+export const metadata: Metadata = { title: "TOP" };
+
 // 3Dが使えない端末向けの灯り(CSSだけで描く)。3Dの準備ができたら自動的に置き換わる。
 const COLORS = ["#E5484D", "#F08A24", "#E8C21A", "#8CC63F", "#5FD3B4", "#3FC8E4", "#3B6FE0", "#8E5AD6", "#EC6FA9"];
 const HEIGHTS = [58, 82, 66, 96, 74, 110, 70, 90, 62, 104, 78, 68, 98, 60, 86, 72, 108, 64];
@@ -13,16 +17,16 @@ const LIGHTS = HEIGHTS.map((height, index) => ({ id: index, height, color: COLOR
 
 const POINTS = [
   {
-    title: "YouTubeとBlogの新着は自動で並びます",
-    body: "登録したチャンネルとBlogの更新を定期的に確認し、新しい順に一覧にします。未読の数はタブに表示します。",
+    title: "推しの投稿をスワイプで",
+    body: "YouTube・X・Instagram・TikTok の投稿を、推しごとに1本の流れにまとめます。上下のスワイプで次々に見られます。",
   },
   {
-    title: "X・Instagram・TikTokは公式の埋め込みで表示します",
-    body: "各サービスが提供する公式の埋め込みを、推しのタブの中に並べます。投稿そのものは当アプリでは取得も保存もしません。",
+    title: "ギャラリーとカレンダー",
+    body: "左右のスワイプで、推しの写真・チェキのギャラリーと、LIVE・チェキのカレンダーに切り替わります。",
   },
   {
-    title: "メンバーカラーで見分けられます",
-    body: "推しごとに色を決めると、タブも新着もその色の灯りで並びます。誰の更新かが、文字を読む前に分かります。",
+    title: "写真はあなたのGoogleドライブに",
+    body: "ギャラリーやチェキの写真は、Googleアカウントに紐づくGoogleドライブに保存します。",
   },
 ];
 
@@ -67,7 +71,7 @@ export default function LandingPage() {
           <div className="flex flex-1 flex-col justify-center pb-[34dvh]">
             <h1 className="font-display text-[clamp(40px,9vw,88px)] leading-[1.1] tracking-wide">推しに溺れたい</h1>
             <p className="mt-6 max-w-[34em] text-[17px] leading-8 text-muted">
-              推しのSNSとBlogを、ひとりずつ1つのタブにまとめます。あちこちのアプリを行き来する時間を、推しを見る時間に。
+              推しのSNSの投稿を、推しごとにまとめてスワイプで。あちこちのアプリを行き来する時間を、推しを見る時間に。
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href={start} className={buttonClass("primary", "md", "h-12 px-6 text-[15px]")}>
@@ -97,7 +101,7 @@ export default function LandingPage() {
               深いところまで、どうぞ
             </h2>
             <p className="mt-5 max-w-[32em] text-[15px] leading-7 text-muted">
-              登録はGoogleアカウントだけ。推しの名前と色を決めて、URLを貼れば始められます。
+              登録はGoogleアカウントだけ。推しの名前と色を決めて、SNSのURLを貼れば始められます。
             </p>
             <Link href={start} className={buttonClass("primary", "md", "mt-8 h-12 px-6 text-[15px]")}>
               {startLabel}

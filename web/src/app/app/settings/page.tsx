@@ -29,7 +29,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     <div className="mx-auto max-w-[760px] space-y-5 pb-8">
       <div>
         <Link href="/app" className="text-[13px] text-muted hover:text-text">
-          ← TOP
+          ← 投稿
         </Link>
         <h1 className="text-xl leading-7 font-bold">設定</h1>
       </div>

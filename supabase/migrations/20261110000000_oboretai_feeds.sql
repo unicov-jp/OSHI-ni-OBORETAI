@@ -495,9 +495,23 @@ language sql security definer set search_path = '' as $$
 $$;
 
 -- 保存期間を過ぎた項目・ログと、誰も登録していない取得元を消す。
-create or replace function public.oshikatsu_cleanup_old_data(retention_days int default 30) returns void
+-- 古いデータの片付け(毎日の自動取得のあとに呼ぶ)。
+-- 新着(YouTube・Blog)は期間では消さず、取得元ごとに新しい順で keep_per_feed 件まで残す(容量を一定に保つ)。
+-- retention_days を 1 以上にしたときだけ、それより古いもの(公開日)も消す。0 は期間の制限なし
+drop function if exists public.oshikatsu_cleanup_old_data(int);
+create or replace function public.oshikatsu_cleanup_old_data(retention_days int default 0, keep_per_feed int default 500) returns void
 language sql security definer set search_path = '' as $$
-  delete from public.oshikatsu_feed_items where fetched_at < now() - make_interval(days => greatest(retention_days, 1));
+  delete from public.oshikatsu_feed_items i
+    using (
+      select id from (
+        select id, row_number() over (partition by feed_id order by published_at desc) as n
+        from public.oshikatsu_feed_items
+      ) ranked
+      where ranked.n > greatest(keep_per_feed, 50)
+    ) extra
+    where i.id = extra.id;
+  delete from public.oshikatsu_feed_items
+    where retention_days > 0 and published_at < now() - make_interval(days => retention_days);
   delete from public.oshikatsu_fetch_logs where created_at < now() - interval '30 days';
   delete from public.oshikatsu_rate_events where created_at < now() - interval '1 day';
   delete from public.oshikatsu_feeds f
@@ -613,7 +627,7 @@ revoke all on function public.oshikatsu_admin_set_suspended(uuid, boolean) from 
 revoke all on function public.oshikatsu_admin_set_feed_status(uuid, text) from public, anon;
 revoke all on function public.oshikatsu_claim_due_feeds(int, uuid) from public, anon, authenticated;
 revoke all on function public.oshikatsu_bump_api_usage(text, int) from public, anon, authenticated;
-revoke all on function public.oshikatsu_cleanup_old_data(int) from public, anon, authenticated;
+revoke all on function public.oshikatsu_cleanup_old_data(int, int) from public, anon, authenticated;
 revoke all on function public.oshikatsu_claim_user_feeds(uuid, int, int) from public, anon, authenticated;
 revoke all on function public.oshikatsu_set_display_name(text) from public, anon;
 revoke all on function public.oshikatsu_admin_list_users(text, int, int) from public, anon;
@@ -636,7 +650,7 @@ grant execute on function public.oshikatsu_max_oshi(uuid) to service_role;
 grant execute on function public.oshikatsu_max_sources(uuid) to service_role;
 grant execute on function public.oshikatsu_claim_due_feeds(int, uuid) to service_role;
 grant execute on function public.oshikatsu_bump_api_usage(text, int) to service_role;
-grant execute on function public.oshikatsu_cleanup_old_data(int) to service_role;
+grant execute on function public.oshikatsu_cleanup_old_data(int, int) to service_role;
 grant execute on function public.oshikatsu_claim_user_feeds(uuid, int, int) to service_role;
 
 -- ============ Subscription の料金(推し1人ごとの加算) ============

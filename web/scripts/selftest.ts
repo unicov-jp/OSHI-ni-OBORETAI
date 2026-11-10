@@ -162,6 +162,11 @@ async function main() {
     })?.media.map((m) => m.url).concat(["text"]),
     ["https://pbs.twimg.com/media/p.jpg", "https://video.twimg.com/high.mp4", "text"],
   );
+  check(
+    "X 投稿のリンク",
+    tweetFromResult({ id_str: "1", text: "見て https://t.co/abc", entities: { urls: [{ url: "https://t.co/abc", expanded_url: "https://example.com/live", display_url: "example.com/live" }] } })?.links,
+    [{ from: "https://t.co/abc", to: "https://example.com/live", display: "example.com/live" }],
+  );
   check("X 投稿の本文(長い投稿は全文)", tweetFromResult({ id_str: "1", text: "x", note_tweet: { note_tweet_results: { result: { text: "全文 &amp; 続き" } } } })?.text, "全文 & 続き");
   check("X 投稿なし", postsFromSyndication("<html></html>"), []);
 

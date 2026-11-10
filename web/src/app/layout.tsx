@@ -19,18 +19,16 @@ export const viewport: Viewport = {
   initialScale: 1,
   // 画面の端(ノッチ・ホームバーの下)まで使い、はみ出す分は safe-area で避ける
   viewportFit: "cover",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f1f7f9" },
-    { media: "(prefers-color-scheme: dark)", color: "#06141f" },
-  ],
+  themeColor: "#000000",
+  colorScheme: "dark",
 };
 
-// 描画前にテーマを決める(切り替え時のちらつき防止)。保存がなければ端末の設定に合わせる。
-const themeScript = `(function(){document.documentElement.classList.add("js");try{var t=localStorage.getItem("theme");if(t!=="light"&&t!=="dark"){t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme="light"}})()`;
+// 背景の明るさは新着の画面と同じ暗い表示に固定する
+const themeScript = `document.documentElement.classList.add("js")`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ja" suppressHydrationWarning>
+    <html lang="ja" data-theme="dark" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>

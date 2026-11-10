@@ -1,13 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { MfaPanel } from "@/components/mfa-panel";
-import { BillingButtons } from "@/components/settings-forms";
-import { Badge, buttonClass, formatDateTime, Notice, Section } from "@/components/ui";
+import { Badge, buttonClass, Notice, Section } from "@/components/ui";
 import { requireViewer } from "@/lib/auth";
 import { limitText, PLAN_LABEL } from "@/lib/plans";
-import { DEMO } from "@/lib/env";
-import { billingEnabled, proPriceLabel } from "@/lib/stripe";
-import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "設定" };
 
@@ -16,26 +12,16 @@ const NOTICES: Record<string, { tone: "ok" | "warn"; text: string }> = {
   "admin-mfa": { tone: "warn", text: "管理画面を開くには、二段階認証の設定が必要です。" },
 };
 
-async function subscriptionInfo(): Promise<{ periodEnd: string | null; cancelAtEnd: boolean }> {
-  if (DEMO) return { periodEnd: new Date(Date.now() + 20 * 86400_000).toISOString(), cancelAtEnd: false };
-  // 課金(Stripe)は保留中。設定されるまでは契約の情報を読まない
-  if (!billingEnabled()) return { periodEnd: null, cancelAtEnd: false };
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("subscriptions")
-    .select("current_period_end, cancel_at_period_end")
-    .maybeSingle();
-  return {
-    periodEnd: (data?.current_period_end as string | null) ?? null,
-    cancelAtEnd: Boolean(data?.cancel_at_period_end),
-  };
+// サブスクの申し込み先(Stripe の申し込みページ)。Vercel の環境変数 STRIPE_SUBSCRIBE_URL に入れる。未設定なら「準備中」
+function subscribeUrl(): string | null {
+  const url = process.env.STRIPE_SUBSCRIBE_URL ?? "";
+  return /^https:\/\/(buy\.stripe\.com|checkout\.stripe\.com|billing\.stripe\.com)\//.test(url) ? url : null;
 }
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
   const [{ notice }, viewer] = await Promise.all([searchParams, requireViewer()]);
-  const [price, subscription] = await Promise.all([DEMO ? null : proPriceLabel(), subscriptionInfo()]);
   const banner = notice ? NOTICES[notice] : undefined;
-  const isPro = viewer.plan === "paid";
+  const subscribe = subscribeUrl();
 
   return (
     <div className="mx-auto max-w-[760px] space-y-5">
@@ -46,12 +32,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <h1 className="text-xl leading-7 font-bold">設定</h1>
       </div>
       {banner ? <Notice tone={banner.tone}>{banner.text}</Notice> : null}
-
-      <Section title="推しの登録" description="推しの追加・編集と、新着を取るSNSの登録。今のアプリ(推し活手帳)と共通です。">
-        <Link href="/app/manage" className={buttonClass("primary")}>
-          推しの登録を開く
-        </Link>
-      </Section>
 
       <Section title="アカウント">
         <dl className="mb-4 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 text-sm">
@@ -72,51 +52,28 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </form>
       </Section>
 
-
       <Section title="プラン">
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
-            <Badge tone={viewer.plan === "master" ? "warn" : isPro ? "brand" : "neutral"}>{PLAN_LABEL[viewer.plan]}</Badge>
+            <Badge tone={viewer.plan === "master" ? "warn" : viewer.plan === "paid" ? "brand" : "neutral"}>
+              {PLAN_LABEL[viewer.plan]}
+            </Badge>
             <p className="num text-sm text-muted">
               推し {limitText(viewer.oshiCount, viewer.maxOshi, "人")}、アカウント {limitText(viewer.sourceCount, viewer.maxSources, "件")}
             </p>
           </div>
-          <div className="overflow-hidden rounded-lg border border-line">
-            <table className="data-table text-sm">
-              <thead>
-                <tr>
-                  <th className="w-[40%]">できること</th>
-                  <th>無料</th>
-                  <th>有料{price ? `(${price})` : ""}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>登録できる推し</td>
-                  <td className="num">3人</td>
-                  <td className="num">50人</td>
-                </tr>
-                <tr>
-                  <td>登録できるアカウント</td>
-                  <td className="num">15件</td>
-                  <td className="num">300件</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          {isPro && subscription.periodEnd ? (
-            <p className="text-sm text-muted">
-              {subscription.cancelAtEnd ? "解約済みです。次の日時までProをご利用いただけます: " : "次回の更新日時: "}
-              {formatDateTime(subscription.periodEnd)}
-            </p>
-          ) : null}
-          {viewer.plan === "master" ? null : <BillingButtons isPro={isPro} enabled={DEMO || billingEnabled()} />}
-          <p className="text-xs text-muted">
-            お支払いはStripeの画面で行います。カード情報は当アプリには保存されません。
-            <Link href="/legal/tokushoho" className="ml-1 underline">
-              特定商取引法に基づく表記
+          <div className="flex flex-wrap gap-2">
+            {viewer.plan === "master" ? null : subscribe ? (
+              <a href={subscribe} target="_blank" rel="noopener noreferrer" className={buttonClass("primary")}>
+                {viewer.plan === "paid" ? "サブスクの管理(Stripe)" : "サブスクに申し込む(Stripe)"}
+              </a>
+            ) : (
+              <span className={`${buttonClass("primary")} pointer-events-none opacity-50`}>サブスクは準備中です</span>
+            )}
+            <Link href="/pricing" className={buttonClass("secondary")}>
+              料金ページ
             </Link>
-          </p>
+          </div>
         </div>
       </Section>
     </div>

@@ -3,7 +3,6 @@ import type { CSSProperties } from "react";
 import { Wordmark } from "@/components/header";
 import { OceanScene } from "@/components/landing/ocean-scene";
 import { Reveal, ViewModeShowcase } from "@/components/landing/scroll";
-import { ThemeSwitch } from "@/components/theme-switch";
 import { buttonClass } from "@/components/ui";
 import { DEMO } from "@/lib/env";
 
@@ -59,7 +58,6 @@ export default function LandingPage() {
           <header className="flex h-14 shrink-0 items-center justify-between">
             <Wordmark />
             <div className="flex items-center gap-1">
-              <ThemeSwitch />
               <Link href={start} className={buttonClass("secondary", "sm")}>
                 ログイン
               </Link>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition,
 } from "react";
@@ -88,7 +89,9 @@ function useLongPress(onLongPress: () => void) {
 }
 
 // 推しのアイコン: タップでその推しの新着、長押しでその推しのSNSの登録
-function OshiTab({ oshi: o, on, count, tabRef }: { oshi: Oshi; on: boolean; count: number; tabRef?: React.Ref<HTMLAnchorElement> }) {
+function OshiTab({ oshi: o, on, count, busy, onRefresh, tabRef }: {
+  oshi: Oshi; on: boolean; count: number; busy: boolean; onRefresh?: () => void; tabRef?: React.Ref<HTMLAnchorElement>;
+}) {
   const router = useRouter();
   const press = useLongPress(() => router.push(`/app/manage?sns=${encodeURIComponent(o.id)}`));
   return (
@@ -97,13 +100,27 @@ function OshiTab({ oshi: o, on, count, tabRef }: { oshi: Oshi; on: boolean; coun
       replace
       ref={tabRef}
       aria-current={on ? "page" : undefined}
-      aria-label={`${o.name}(長押しでSNSを登録)`}
+      aria-label={`${o.name}(タップで新着を取りに行く・長押しでSNSを登録)`}
       title={o.name}
       className={`relative flex shrink-0 snap-start items-center justify-center rounded-full ${on ? "" : "opacity-55"}`}
       {...press}
+      // 選んでいる推しをもう一度タップしたときは、その推しの新着を取りに行く
+      onClick={(event) => {
+        if (on && onRefresh) {
+          event.preventDefault();
+          onRefresh();
+        }
+      }}
       style={{ ...press.style, width: "var(--slot)", height: "var(--slot)" }}
     >
       <OshiAvatar oshi={o} size="var(--avatar)" />
+      {busy ? (
+        <span
+          aria-hidden
+          className="absolute animate-spin rounded-full border-2 border-white/25 border-t-white"
+          style={{ width: "calc(var(--avatar) + 10px)", height: "calc(var(--avatar) + 10px)" }}
+        />
+      ) : null}
       {on ? <span className="absolute bottom-0 h-[3px] w-5 rounded-full bg-white" aria-hidden /> : null}
       {count > 0 ? (
         <span className="num absolute top-0.5 right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ff2d6f] px-1 text-[10px] font-bold text-white">
@@ -160,8 +177,6 @@ export function SwipeFeed({
   const [refreshing, setRefreshing] = useState(false);
   const [pending, startTransition] = useTransition();
   const scroller = useRef<HTMLDivElement>(null);
-  // 更新ボタンの長押しで、推しを新しく登録する
-  const refreshPress = useLongPress(() => router.push("/app/manage?new=1"));
 
   // 今のアプリの登録(本人・グループ)で、まだ取り込んでいないSNSがあれば、裏で自動で取り込む(このタブで1回)
   useEffect(() => {
@@ -298,25 +313,33 @@ export function SwipeFeed({
   );
   const touch = useRef<{ x: number; y: number } | null>(null);
 
-  const refresh = async () => {
+  // 推しのアイコンをタップしたら(=この画面が開いたら)、その推しの新着を取りに行く。
+  // 新しく届いたものがあれば画面を読み直す。取得元ごとに10分は取り直さない(サーバー側)
+  const refresh = useCallback(async () => {
     setRefreshing(true);
-    setNote(null);
     try {
-      const response = await fetch("/api/feeds/refresh", { method: "POST" });
-      const body = (await response.json().catch(() => ({}))) as { error?: string; claimed?: number; added?: number };
-      if (!response.ok) setNote(body.error ?? "更新できませんでした");
-      else if (!body.claimed) setNote("最新の状態です");
-      else {
-        setNote(body.added ? `新着が${body.added}件ありました` : "新着はありませんでした");
+      const response = await fetch("/api/feeds/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oshiId: active.id }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { claimed?: number; added?: number };
+      if (response.ok && body.added) {
+        setNote(`新着が${body.added}件ありました`);
+        setTimeout(() => setNote(null), 3000);
         router.refresh();
       }
     } catch {
-      setNote("通信できませんでした");
+      // 通信できないときは、今ある新着をそのまま見せる
     } finally {
       setRefreshing(false);
-      setTimeout(() => setNote(null), 4000);
     }
-  };
+  }, [active.id, router]);
+  useEffect(() => {
+    // 画面を描き終えてから取りに行く
+    const timer = setTimeout(() => void refresh(), 0);
+    return () => clearTimeout(timer);
+  }, [refresh]);
 
   // ブラウザが音を出させてくれる状態か(画面を一度でも触ったか)。サーバーで作る画面では「触った」とみなし、
   // ブラウザで実際の状態に合わせる(表示のずれを起こさないため useSyncExternalStore を使う)
@@ -339,7 +362,7 @@ export function SwipeFeed({
     <Controls.Provider value={controls}>
     <div
       className="fixed inset-0 z-40 bg-black text-white md:top-14 md:z-20"
-      // 上部は「推しのアイコン4つ＋更新ボタン」の5つが画面の幅に並ぶ大きさにする
+      // 上部は推しのアイコン5つが画面の幅に並ぶ大きさにする
       style={{
         ["--slot" as string]: "min(80px, calc((100vw - 8px) / 5))",
         ["--avatar" as string]: "calc(var(--slot) - 12px)",
@@ -367,50 +390,30 @@ export function SwipeFeed({
         if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 2) go(dx < 0 ? 1 : -1);
       }}
     >
-      {/* 上: 推しのタブ(推し単位のみ)と更新 */}
+      {/* 上: 推しのアイコン(タップでその推しの新着を見る・取りに行く。長押しでSNSの登録) */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[calc(var(--bar)+2rem)] bg-gradient-to-b from-black/70 to-transparent" />
       <nav
         aria-label="推し"
+        aria-busy={refreshing}
         className="absolute top-[env(safe-area-inset-top)] z-30 flex h-[calc(var(--slot)+8px)] snap-x snap-mandatory items-center overflow-x-auto [scrollbar-width:none]"
-        style={{ width: "calc(var(--slot) * 4)", left: "calc((100vw - var(--slot) * 5) / 2)" }}
+        style={{ width: "calc(var(--slot) * 5)", left: "calc((100vw - var(--slot) * 5) / 2)" }}
       >
         {oshi.map((o) => {
           const on = o.id === active.id;
           const count = unread[o.id] ?? 0;
-          return <OshiTab key={o.id} oshi={o} on={on} count={count} tabRef={on ? activeTab : undefined} />;
+          return (
+            <OshiTab
+              key={o.id}
+              oshi={o}
+              on={on}
+              count={count}
+              busy={on && refreshing}
+              onRefresh={on ? () => void refresh() : undefined}
+              tabRef={on ? activeTab : undefined}
+            />
+          );
         })}
       </nav>
-            <button
-        type="button"
-        {...refreshPress}
-        onClick={refresh}
-        disabled={refreshing}
-        aria-label="新着を取りに行く(長押しで推しを新しく登録)"
-        title="新着を取りに行く(長押しで推しを新しく登録)"
-        style={{
-          ...refreshPress.style,
-          // 推しのアイコンはメンバーカラーの縁(左右3pxずつ)の分だけ大きく見えるので、更新ボタンもその大きさにそろえる
-          width: "calc(var(--avatar) + 6px)",
-          height: "calc(var(--avatar) + 6px)",
-          right: "calc((100vw - var(--slot) * 5) / 2 + (var(--slot) - var(--avatar) - 6px) / 2)",
-          top: "calc(env(safe-area-inset-top) + 4px + (var(--slot) - var(--avatar) - 6px) / 2)",
-        }}
-        className="absolute z-30 flex items-center justify-center rounded-full border border-white/25 bg-white/10 text-white shadow-[0_4px_16px_rgba(0,0,0,.4)] backdrop-blur-md transition active:scale-90 disabled:opacity-70"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          aria-hidden
-          className={`h-5 w-5 ${refreshing ? "animate-spin" : ""}`}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M20 11a8 8 0 1 0-2.34 5.66" />
-          <path d="M20 4v7h-7" />
-        </svg>
-      </button>
       {note ? (
         <p className="absolute top-[var(--bar)] left-1/2 z-30 -translate-x-1/2 rounded-full bg-white px-4 py-1.5 text-[13px] font-bold whitespace-nowrap text-black">
           {note}
@@ -509,9 +512,53 @@ const ICON = {
   admin: ["M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z", "M9 12l2 2 4-4"],
 };
 
+// 推しのメニュー(右下の推しのアイコンの長押し)。今のアプリ(推し活手帳)の機能は、ここに順に集めていく
+function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
+  const items: { href: string; label: string; note: string }[] = [
+    { href: `/app/manage?sns=${encodeURIComponent(oshi.id)}`, label: "SNSを登録・編集", note: "新着を取る YouTube・Blog・X・Instagram・TikTok" },
+    { href: `/app/manage?edit=${encodeURIComponent(oshi.id)}`, label: "推しを編集", note: "名前・メンバーカラー・グループ・事務所・誕生日・SNS" },
+  ];
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end bg-black/60 text-white" onClick={onClose} role="presentation">
+      <div
+        role="dialog"
+        aria-label={`${oshi.name}のメニュー`}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full rounded-t-3xl bg-[#111] px-4 pt-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-white shadow-2xl"
+      >
+        <span aria-hidden className="mx-auto mb-4 block h-1 w-10 rounded-full bg-white/25" />
+        <div className="mb-3 flex items-center gap-3 px-1">
+          <OshiAvatar oshi={oshi} size={44} />
+          <p className="truncate text-lg font-bold">{oshi.name}</p>
+        </div>
+        <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
+          {items.map((item) => (
+            <li key={item.href}>
+              <Link href={item.href} className="flex min-h-[60px] flex-col justify-center px-4 py-2 active:bg-white/10">
+                <span className="text-[15px] font-semibold">{item.label}</span>
+                <span className="truncate text-xs text-white/55">{item.note}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 px-1 text-xs text-white/45">LIVE・チェキ・物販・集計などの記録も、ここから使えるようにしていきます。</p>
+        <button type="button" onClick={onClose} className="mt-3 h-12 w-full rounded-2xl bg-white/10 text-[15px] font-semibold">
+          閉じる
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // 右側のボタン(推しのアイコン・開く・共有・ミュート・設定・管理)
 function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: string }) {
   const { muted, toggleMute, isAdmin } = useContext(Controls);
+  const router = useRouter();
+  const [menu, setMenu] = useState(false);
+  // 右下の推しのアイコンを長押し: その推しのメニュー(SNSの登録・推しの編集など)
+  const avatarPress = useLongPress(() => setMenu(true));
+  // 設定(管理)ボタンを長押し: 推しを新しく登録
+  const newPress = useLongPress(() => router.push("/app/manage?new=1"));
   // 音の状態はボタンの色で示す: 音あり=白っぽい / ミュート中=ピンク
   const soundTone = muted ? "bg-[#ff2d6f] text-white" : "bg-white/15";
   const [copied, setCopied] = useState(false);
@@ -531,7 +578,17 @@ function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: str
   const item = "flex flex-col items-center gap-1";
   return (
     <div className="absolute right-3 bottom-[calc(2rem+env(safe-area-inset-bottom))] z-10 flex flex-col items-center gap-4 text-[10.5px] font-bold [text-shadow:0_1px_3px_rgba(0,0,0,.6)]">
-      <OshiAvatar oshi={oshi} size={46} />
+      <button
+        type="button"
+        aria-label={`${oshi.name}のメニュー(長押し)`}
+        onClick={() => setMenu(true)}
+        {...avatarPress}
+        className="rounded-full"
+      >
+        <OshiAvatar oshi={oshi} size={46} />
+      </button>
+      {/* メニューは画面全体のいちばん上に出す(ほかの表示と重ならないよう、ページの最上位に置く) */}
+      {menu ? createPortal(<OshiMenu oshi={oshi} onClose={() => setMenu(false)} />, document.body) : null}
       <a href={url} target="_blank" rel="noopener noreferrer" className={item}>
         <span className={round}>
           <Icon d={ICON.open} />
@@ -558,14 +615,14 @@ function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: str
       </button>
       {/* マスターは「管理」(設定も管理の中から開ける)、それ以外は「設定」 */}
       {isAdmin ? (
-        <Link href="/admin" className={item}>
+        <Link href="/admin" className={item} aria-label="管理(長押しで推しを新しく登録)" {...newPress}>
           <span className={round}>
             <Icon d={ICON.admin} />
           </span>
           管理
         </Link>
       ) : (
-        <Link href="/app/settings" className={item}>
+        <Link href="/app/settings" className={item} aria-label="設定(長押しで推しを新しく登録)" {...newPress}>
           <span className={round}>
             <Icon d={ICON.settings} />
           </span>
@@ -835,7 +892,96 @@ type Tweet = {
   at: string;
   user: { name: string; handle: string; avatar: string | null };
   media: { type: "photo" | "video"; url: string; poster: string | null; width: number; height: number }[];
+  links: { from: string; to: string; display: string }[];
 };
+
+// 本文の中のリンク(URL)・@アカウント・#ハッシュタグを押せるようにする
+function LinkedText({ text, links }: { text: string; links: Tweet["links"] }) {
+  const parts: React.ReactNode[] = [];
+  const pattern = /(https?:\/\/[^\s]+)|(@[A-Za-z0-9_]{1,15})|([#＃][\p{L}\p{N}_]+)/gu;
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > last) parts.push(text.slice(last, index));
+    const token = match[0];
+    let href = token;
+    let label = token;
+    if (match[1]) {
+      const link = links.find((l) => l.from === token);
+      href = link?.to ?? token;
+      label = link?.display ?? token.replace(/^https?:\/\//, "");
+    } else if (match[2]) {
+      href = `https://x.com/${token.slice(1)}`;
+    } else {
+      href = `https://x.com/hashtag/${encodeURIComponent(token.slice(1))}`;
+    }
+    parts.push(
+      <a key={`${index}-${token}`} href={href} target="_blank" rel="noopener noreferrer" className="text-sky-400 [overflow-wrap:anywhere]">
+        {label}
+      </a>,
+    );
+    last = index + token.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
+// 写真・動画が複数あるときは、横にスワイプして見る(ここでの横スワイプは、隣の推しへの切り替えに使わない)
+function MediaCarousel({ media, near, video }: { media: Tweet["media"]; near: boolean; video: React.Ref<HTMLVideoElement> }) {
+  const [index, setIndex] = useState(0);
+  const strip = useRef<HTMLDivElement>(null);
+  return (
+    <div
+      className="relative mt-3"
+      onTouchStart={(event) => event.stopPropagation()}
+      onTouchEnd={(event) => event.stopPropagation()}
+    >
+      <div
+        ref={strip}
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          setIndex(Math.round(el.scrollLeft / Math.max(1, el.clientWidth)));
+        }}
+        className="flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain rounded-xl [scrollbar-width:none]"
+      >
+        {media.map((m, i) => (
+          <div key={m.url} className="flex w-full shrink-0 snap-center items-center justify-center bg-black/40">
+            {m.type === "video" ? (
+              <video
+                ref={i === media.findIndex((x) => x.type === "video") ? video : undefined}
+                src={m.url}
+                poster={m.poster ?? undefined}
+                playsInline
+                loop
+                muted
+                preload={near ? "metadata" : "none"}
+                className="w-full bg-black"
+                style={{ aspectRatio: `${m.width} / ${m.height}`, maxHeight: "62dvh" }}
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={m.url}
+                alt=""
+                referrerPolicy="no-referrer"
+                loading="lazy"
+                className="w-full object-contain"
+                style={{ aspectRatio: `${m.width} / ${m.height}`, maxHeight: "62dvh" }}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+      {media.length > 1 ? (
+        <div className="mt-2 flex justify-center gap-1.5" aria-label={`${index + 1} / ${media.length}`}>
+          {media.map((m, i) => (
+            <span key={m.url} className={`h-1.5 rounded-full transition-all ${i === index ? "w-4 bg-white" : "w-1.5 bg-white/35"}`} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 // X の投稿1件。本文(長い投稿も全文)・写真・動画をアプリで直接表示する(「さらに表示」を押す必要がない)。
 // 本文が画面に収まらないときだけ、その中で上下にスクロールでき、端まで行けば次の投稿へスワイプで進む。
@@ -891,39 +1037,11 @@ function TweetSlide({ source, id, at, from, oshi, near, live }: {
               </div>
             </div>
             {tweet.text ? (
-              <p className="mt-3 text-[16px] leading-7 whitespace-pre-wrap [overflow-wrap:anywhere]">{tweet.text}</p>
+              <p className="mt-3 text-[16px] leading-7 whitespace-pre-wrap [overflow-wrap:anywhere]">
+                <LinkedText text={tweet.text} links={tweet.links ?? []} />
+              </p>
             ) : null}
-            {tweet.media.length > 0 ? (
-              <div className="mt-3 space-y-2">
-                {tweet.media.map((m) =>
-                  m.type === "video" ? (
-                    <video
-                      key={m.url}
-                      ref={video}
-                      src={m.url}
-                      poster={m.poster ?? undefined}
-                      playsInline
-                      loop
-                      muted
-                      preload={near ? "metadata" : "none"}
-                      className="w-full rounded-xl bg-black"
-                      style={{ aspectRatio: `${m.width} / ${m.height}`, maxHeight: "70dvh" }}
-                    />
-                  ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      key={m.url}
-                      src={m.url}
-                      alt=""
-                      referrerPolicy="no-referrer"
-                      loading="lazy"
-                      className="w-full rounded-xl object-contain"
-                      style={{ aspectRatio: `${m.width} / ${m.height}`, maxHeight: "70dvh" }}
-                    />
-                  ),
-                )}
-              </div>
-            ) : null}
+            {tweet.media.length > 0 ? <MediaCarousel media={tweet.media} near={near} video={video} /> : null}
           </article>
         </div>
       ) : (

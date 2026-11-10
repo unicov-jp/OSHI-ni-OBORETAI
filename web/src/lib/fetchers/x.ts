@@ -86,6 +86,8 @@ export type XTweet = {
   at: string;
   user: { name: string; handle: string; avatar: string | null };
   media: { type: "photo" | "video"; url: string; poster: string | null; width: number; height: number }[];
+  // 本文の短縮リンク(https://t.co/…)と、その本当の行き先・表示用の文字
+  links: { from: string; to: string; display: string }[];
 };
 
 const tweetCache = new Map<string, { tweet: XTweet | null; at: number }>();
@@ -95,12 +97,15 @@ function tweetToken(id: string): string {
   return ((Number(id) / 1e15) * Math.PI).toString(6 ** 2).replace(/(0+|\.)/g, "");
 }
 
+type RawUrl = { url?: string; expanded_url?: string; display_url?: string };
+
 type RawTweet = {
   id_str?: string;
   text?: string;
   created_at?: string;
   display_text_range?: [number, number];
-  note_tweet?: { note_tweet_results?: { result?: { text?: string } } };
+  note_tweet?: { note_tweet_results?: { result?: { text?: string; entity_set?: { urls?: RawUrl[] } } } };
+  entities?: { urls?: RawUrl[] };
   user?: { name?: string; screen_name?: string; profile_image_url_https?: string };
   mediaDetails?: {
     type?: string;
@@ -132,8 +137,15 @@ export function tweetFromResult(raw: RawTweet): XTweet | null {
       if (best?.url) media.push({ type: "video", url: best.url, poster: m.media_url_https ?? null, width, height });
     }
   }
+  const links: XTweet["links"] = [];
+  for (const u of [...(raw.entities?.urls ?? []), ...(raw.note_tweet?.note_tweet_results?.result?.entity_set?.urls ?? [])]) {
+    if (u.url && u.expanded_url && /^https?:\/\//.test(u.expanded_url) && !links.some((l) => l.from === u.url)) {
+      links.push({ from: u.url, to: u.expanded_url, display: u.display_url ?? u.expanded_url });
+    }
+  }
   const at = raw.created_at ? new Date(raw.created_at) : new Date();
   return {
+    links,
     id: raw.id_str,
     text,
     at: Number.isNaN(at.getTime()) ? new Date().toISOString() : at.toISOString(),

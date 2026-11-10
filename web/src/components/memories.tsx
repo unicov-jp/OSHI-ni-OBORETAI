@@ -82,7 +82,10 @@ function PhotoSlide({ photo, eager }: { photo: GalleryPhoto; eager: boolean }) {
       {broken ? (
         <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center text-sm text-white/60">
           <p>写真を読み込めませんでした。</p>
-          <p className="text-xs">Googleドライブで削除された写真や、今のアプリでドライブとの接続が切れているときは表示できません。</p>
+          <p className="text-xs">Googleドライブとの接続が切れているときや、ドライブで削除された写真は表示できません。</p>
+          <a href="/app/settings" className="pointer-events-auto mt-1 rounded-full bg-white/15 px-4 py-2 text-xs font-bold text-white">
+            設定でGoogleドライブを確認
+          </a>
         </div>
       ) : (
         <>

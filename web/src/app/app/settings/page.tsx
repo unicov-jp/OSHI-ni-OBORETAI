@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { DrivePanel } from "@/components/drive-panel";
 import { MfaPanel } from "@/components/mfa-panel";
 import { Badge, buttonClass, Notice, Section } from "@/components/ui";
 import { requireViewer } from "@/lib/auth";
+import { DEMO } from "@/lib/env";
+import { driveConfigured } from "@/lib/google-drive";
+import { createClient } from "@/lib/supabase/server";
 import { PLAN_LABEL } from "@/lib/plans";
 
 export const metadata: Metadata = { title: "設定" };
@@ -11,6 +15,11 @@ export const metadata: Metadata = { title: "設定" };
 const NOTICES: Record<string, { tone: "ok" | "warn"; text: string; adminOnly?: boolean }> = {
   upgraded: { tone: "ok", text: "お申し込みありがとうございます。反映まで数十秒かかることがあります。" },
   "admin-mfa": { tone: "warn", text: "管理画面を開くには、二段階認証の設定が必要です。", adminOnly: true },
+  "drive-connected": { tone: "ok", text: "Googleドライブに接続しました。" },
+  "drive-cancelled": { tone: "warn", text: "Googleドライブへの接続をやめました。" },
+  "drive-noscope": { tone: "warn", text: "Googleドライブの許可にチェックが入っていませんでした。もう一度接続し、ドライブの許可にチェックを入れてください。" },
+  "drive-failed": { tone: "warn", text: "Googleドライブに接続できませんでした。時間をおいてもう一度お試しください。" },
+  "drive-unavailable": { tone: "warn", text: "Googleドライブへの接続は、ただいま準備中です。" },
 };
 
 // Stripe ボタンの行き先。Vercel の環境変数 STRIPE_SUBSCRIBE_URL に入れる(Stripe のページのみ)。未設定なら押せない表示にする
@@ -24,6 +33,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const found = notice ? NOTICES[notice] : undefined;
   const banner = found && (!found.adminOnly || viewer.role === "admin") ? found : undefined;
   const stripe = stripeUrl();
+  // Googleドライブに接続済みか(リフレッシュトークンが保存されているか。値そのものは読まない)
+  let driveConnected = false;
+  if (!DEMO) {
+    const supabase = await createClient();
+    const { count } = await supabase
+      .from("oshikatsu_gdrive_tokens")
+      .select("user_id", { count: "exact", head: true })
+      .eq("user_id", viewer.id);
+    driveConnected = (count ?? 0) > 0;
+  }
 
   return (
     <div className="mx-auto max-w-[760px] space-y-5 pb-8">
@@ -46,6 +65,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </dl>
         <div className="border-t border-line pt-4">
           <MfaPanel enabled={viewer.hasMfa} isAdmin={viewer.role === "admin"} />
+        </div>
+        <div className="mt-4 border-t border-line pt-4">
+          <DrivePanel connected={driveConnected} available={!DEMO && driveConfigured()} />
         </div>
       </Section>
 

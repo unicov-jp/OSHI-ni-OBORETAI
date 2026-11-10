@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, useTransition, type ReactNode } from "reac
 import { OshiAvatar } from "@/components/oshi-avatar";
 import { OshiEditor } from "@/components/oshi-editor";
 import {
-  Button, Clamp, EmptyState, inputClass, Notice,
+  Button, Clamp, EmptyState, Notice,
 } from "@/components/ui";
 import { addSource, deleteSource, importAllSns } from "@/lib/actions/sources";
 import { atLimit, limitText } from "@/lib/plans";
@@ -42,7 +42,7 @@ export function ManageView({ viewer, oshi, categories, sources, initialSns, init
         sources={sources.filter((s) => s.oshi_id === focus.id)}
         sourceFull={sourceFull}
         maxSources={viewer.maxSources}
-        initialTab={initialEdit ? "profile" : "sns"}
+        initialTab={initialEdit ? "profile" : "person"}
       />
     );
   }
@@ -74,11 +74,20 @@ function PageHeader({ onBack, children }: { onBack: () => void; children: ReactN
 }
 
 // 推し1人の画面: 「SNS」と「プロフィール」を切り替える
+type OshiTab = "profile" | "person" | "groups";
+const OSHI_TABS: [OshiTab, string][] = [
+  ["profile", "プロフィール"],
+  ["person", "個人SNS"],
+  ["groups", "グループSNS"],
+];
+
+// 推し1人の画面: 「プロフィール」「個人SNS」「グループSNS」を切り替える。
+// SNSのタブは、上でSNSを入力して保存し(新着を取る先にも自動で登録)、下で登録済みのアカウントを確かめて解除できる
 function OshiPage({ oshi, sources, sourceFull, maxSources, initialTab }: {
-  oshi: Oshi; sources: Source[]; sourceFull: boolean; maxSources: number | null; initialTab: "sns" | "profile";
+  oshi: Oshi; sources: Source[]; sourceFull: boolean; maxSources: number | null; initialTab: OshiTab;
 }) {
   const back = useBackToFeed();
-  const [tab, setTab] = useState(initialTab);
+  const [tab, setTab] = useState<OshiTab>(initialTab);
   return (
     <div className="mx-auto max-w-[640px] pb-10">
       <PageHeader onBack={() => back(oshi.id)}>
@@ -86,33 +95,29 @@ function OshiPage({ oshi, sources, sourceFull, maxSources, initialTab }: {
         <h1 className="clamp-1 min-w-0 text-lg font-bold" title={oshi.name}>{oshi.name}</h1>
       </PageHeader>
 
-      <div role="tablist" className="mt-2 grid grid-cols-2 rounded-xl bg-sunken p-1">
-        {([["sns", `SNS(${sources.length})`], ["profile", "プロフィール"]] as const).map(([key, label]) => (
+      <div role="tablist" className="mt-2 grid grid-cols-3 rounded-xl bg-sunken p-1">
+        {OSHI_TABS.map(([key, label]) => (
           <button
             key={key}
             type="button"
             role="tab"
             aria-selected={tab === key}
             onClick={() => setTab(key)}
-            className={`num h-10 rounded-lg text-sm font-semibold ${tab === key ? "bg-surface text-text shadow-sm" : "text-muted"}`}
+            className={`h-10 rounded-lg text-sm font-semibold ${tab === key ? "bg-surface text-text shadow-sm" : "text-muted"}`}
           >
             {label}
           </button>
         ))}
       </div>
 
-      <div className="mt-5">
-        {tab === "sns" ? (
-          <>
-            {sourceFull ? (
-              <div className="mb-4">
-                <Notice tone="warn">登録できるアカウントの上限({maxSources}件)に達しています。</Notice>
-              </div>
-            ) : null}
-            <SnsEditor oshi={oshi} sources={sources} disabled={sourceFull} />
-          </>
-        ) : (
-          <OshiEditor oshiId={oshi.id} onDone={(_text, id) => back(id ?? null)} />
+      <div className="mt-5 space-y-8">
+        <OshiEditor key={tab} oshiId={oshi.id} section={tab} onDone={(_text, id) => back(id ?? null)} />
+        {tab === "profile" ? null : (
+          <section className="space-y-3 border-t border-line pt-6">
+            <h2 className="text-[15px] font-semibold">新着を取っているアカウント</h2>
+            {sourceFull ? <Notice tone="warn">登録できるアカウントの上限({maxSources}件)に達しています。</Notice> : null}
+            <SnsEditor oshi={oshi} sources={sources} disabled={sourceFull} scope={tab} />
+          </section>
         )}
       </div>
     </div>
@@ -314,7 +319,8 @@ function ImportAll({ oshi, sources, disabled }: { oshi: Oshi[]; sources: Source[
 // 推しのSNSの登録。
 // 「本人」「グループ(兼任なら複数)」ごとに分けて、登録済み(解除できる)と、今のアプリの登録にあるがまだ登録していないもの(＋追加)を並べる。
 // いちばん下に、URLを貼って追加する欄(サービスはURLから自動で見分ける)
-function SnsEditor({ oshi, sources, disabled }: { oshi: Oshi; sources: Source[]; disabled: boolean }) {
+// scope: person=本人(と持ち主が分からないもの)のアカウントだけ、groups=グループのアカウントだけ
+function SnsEditor({ oshi, sources, disabled, scope }: { oshi: Oshi; sources: Source[]; disabled: boolean; scope: "person" | "groups" }) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "ok" | "danger" | "warn"; text: string } | null>(null);
@@ -342,7 +348,9 @@ function SnsEditor({ oshi, sources, disabled }: { oshi: Oshi; sources: Source[];
     });
   };
 
-  const groups = groupSns(oshi, sources);
+  // 持ち主の分からないアカウント(「その他」)は、多くが本人のものなので個人SNSの画面に出す
+  const isPerson = (title: string) => title === "本人" || title === "その他";
+  const groups = groupSns(oshi, sources).filter((g) => (scope === "person" ? isPerson(g.title) : !isPerson(g.title)));
 
   return (
     <div className="space-y-6">
@@ -369,7 +377,7 @@ function SnsEditor({ oshi, sources, disabled }: { oshi: Oshi; sources: Source[];
                   <PlatformMark platform={row.platform} dim />
                   <span className="min-w-0 flex-1">
                     <span className="clamp-1 block text-sm text-muted" title={row.url}>{row.name}</span>
-                    <span className="block text-[11px] text-muted">未登録(今のアプリに登録あり)</span>
+                    <span className="block text-[11px] text-muted">未登録(SNSの欄に入力あり)</span>
                   </span>
                   <Button size="sm" className="w-[64px]" disabled={pending || disabled} onClick={() => add(row.url, row.platform)}>
                     {busy === row.url ? "確認中" : "追加"}
@@ -381,31 +389,7 @@ function SnsEditor({ oshi, sources, disabled }: { oshi: Oshi; sources: Source[];
         </section>
       ))}
 
-      {groups.length === 0 ? <p className="text-sm text-muted">まだ登録されていません。下の欄にURLを貼って追加してください。</p> : null}
-
-      <form
-        className="space-y-2 rounded-xl border border-line bg-surface p-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!pending && url.trim()) add(url.trim());
-        }}
-      >
-        <p className="text-[15px] font-semibold">URLで追加</p>
-        <div className="flex gap-2">
-          <input
-            className={inputClass}
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder="https://..."
-            inputMode="url"
-            aria-label="追加するURL"
-          />
-          <Button type="submit" variant="primary" className="w-[80px] shrink-0" disabled={pending || disabled || !url.trim()}>
-            {busy === url && url ? "確認中" : "追加"}
-          </Button>
-        </div>
-        <p className="text-xs text-muted">YouTube・X・Instagram・TikTok・Blog。サービスはURLから自動で見分けます。</p>
-      </form>
+      {groups.length === 0 ? <p className="text-sm text-muted">まだありません。上の欄にSNSを入れて保存すると登録されます。</p> : null}
     </div>
   );
 }

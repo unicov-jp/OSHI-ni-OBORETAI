@@ -25,7 +25,15 @@ const blank = (): OshiEditable => ({
   groups: [],
 });
 
-export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: (message: string, id?: string) => void }) {
+// section: 推しの画面のタブごとに出す部分(all=新しく登録するときの全部、profile=写真・名前・色・誕生日、
+// person=本人のSNS、groups=グループとそのSNS)。タブの中で保存したときは、その画面のまま「保存しました」と出す
+export type EditorSection = "all" | "profile" | "person" | "groups";
+
+export function OshiEditor({ oshiId, onDone, section = "all" }: {
+  oshiId: string | null; onDone: (message: string, id?: string) => void; section?: EditorSection;
+}) {
+  const router = useRouter();
+  const [saved, setSaved] = useState<string | null>(null);
   const [value, setValue] = useState<OshiEditable | null>(oshiId ? null : blank());
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -54,13 +62,17 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
 
   const save = () => {
     setError(null);
+    setSaved(null);
     startTransition(async () => {
       const result = await saveOshiRecord(value);
       if (!result.ok) return setError(result.error);
       // 入力したSNSを、新着を取る先としても登録する(登録済みのものは重ねない)
       const imported = await importAllSns();
       const count = imported.ok && imported.data ? imported.data.added + imported.data.linked : 0;
-      onDone(`保存しました。今のアプリにも反映されます${count > 0 ? `(SNSを${count}件登録しました)` : ""}`, result.data?.id);
+      const text = `保存しました${count > 0 ? `(SNSを${count}件登録しました)` : ""}`;
+      if (section === "all") return onDone(text, result.data?.id);
+      setSaved(text);
+      router.refresh();
     });
   };
 
@@ -75,7 +87,8 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
 
   return (
     <div className="space-y-6">
-      {value.id ? <PhotoField oshiId={value.id} name={value.name} color={value.color} /> : null}
+      {value.id && (section === "all" || section === "profile") ? <PhotoField oshiId={value.id} name={value.name} color={value.color} /> : null}
+      {section === "all" || section === "profile" ? (
       <div className="space-y-4">
         <Field label="名前">
           <input
@@ -134,9 +147,13 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
           </div>
         </fieldset>
       </div>
+      ) : null}
 
-      <SnsFields title="本人のSNS" value={value.person} onChange={(person) => set({ person })} />
+      {section === "all" || section === "person" ? (
+        <SnsFields title="本人のSNS" value={value.person} onChange={(person) => set({ person })} />
+      ) : null}
 
+      {section === "all" || section === "groups" ? (
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-[15px] font-semibold">グループ</h3>
@@ -172,15 +189,17 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
           </div>
         ))}
       </section>
+      ) : null}
 
       {value.id ? null : <p className="text-xs text-muted">アイコンの写真は、登録したあとにこの画面で設定できます。</p>}
       {error ? <Notice tone="danger">{error}</Notice> : null}
+      {saved ? <Notice tone="ok">{saved}</Notice> : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" onClick={save} disabled={pending || !value.name.trim()}>
           {pending ? "保存中" : value.id ? "変更を保存" : "登録する"}
         </Button>
-        {value.id ? (
+        {value.id && (section === "all" || section === "profile") ? (
           confirmDelete ? (
             <>
               <Button variant="danger" onClick={remove} disabled={pending}>

@@ -838,16 +838,48 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   // 自動再生を確実に始めるため音なしで読み込み、画面を一度でも触っていれば音をオンにする。
   // 起動直後(まだ触っていない)に音をオンにすると、ブラウザが再生を止めてしまうので、触るまでは音なしで再生する
   const sound = !muted && activated;
+  // 音を切り替えたときに YouTube が再生を止めることがあるので、切り替えたら必ず再生をかけ直す
   useEffect(() => {
     if (!live || !frame.current) return;
     send(sound ? "unMute" : "mute");
+    send("playVideo");
   }, [sound, live, send]);
+
+  // 動画は止めない(タップは音のオン・オフだけ)。YouTube が止まったら(音を出せないと判断されたときなど)すぐ再生し直し、
+  // 続けて止まるときは音なしにして再生を続ける
+  const soundRef = useRef(sound);
+  useEffect(() => {
+    soundRef.current = sound;
+  }, [sound]);
+  useEffect(() => {
+    if (!live) return;
+    let pauses = 0;
+    let lastPause = 0;
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow || typeof event.data !== "string") return;
+      const data = safeJson(event.data) as { event?: string; info?: unknown } | null;
+      if (!data) return;
+      const state =
+        data.event === "onStateChange" ? data.info
+          : data.event === "infoDelivery" && data.info && typeof data.info === "object" ? (data.info as { playerState?: number }).playerState
+            : undefined;
+      if (state !== 2) return;
+      const now = Date.now();
+      pauses = now - lastPause < 3000 ? pauses + 1 : 1;
+      lastPause = now;
+      if (pauses >= 3 && soundRef.current) send("mute");
+      send("playVideo");
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [live, send]);
 
   const tap = () => {
     if (!muted && !activated) {
       // 初めて触ったとき: 音をオンにする(このタップで音を出せるようになる)
       activate();
       send("unMute");
+      send("playVideo");
       return;
     }
     onToggleSound();
@@ -917,6 +949,8 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
                 referrerPolicy="strict-origin-when-cross-origin"
                 onLoad={() => {
                   // 読み込み直後は命令を受け付けないことがあるため、少し間をおいて音の設定を送り直す
+                  // 再生の状態を知らせてもらう(止まったら再生し直すため)
+                  frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: videoId }), "*");
                   // 止まっていたら再生し直す(起動直後に自動再生が始まらないことがあるため)
                   for (const wait of [300, 1200]) {
                     setTimeout(() => {
@@ -1261,8 +1295,11 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
   // 画面を初めて触るまでは音なしで再生する(起動直後に音をオンにすると、ブラウザが再生を止めてしまう)。
   // 触ったら音の設定を送り直す
   const sound = !muted && activated;
+  // 音を切り替えたら再生もかけ直す(音の切り替えで止まらないように)
   useEffect(() => {
-    if (live) send(sound ? "unMute" : "mute");
+    if (!live) return;
+    send(sound ? "unMute" : "mute");
+    send("play");
   }, [sound, live, send]);
 
   // ループはプレーヤーの機能に任せると読み直しで途切れるため、終わったらすぐ先頭に戻して再生する

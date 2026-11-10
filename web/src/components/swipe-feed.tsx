@@ -122,10 +122,10 @@ function subscribeActivation(notify: () => void): () => void {
 // 右側のボタン(ミュート・設定・管理)が使う共通の状態
 // activated: 画面をもう触ったか。ブラウザは、一度も触っていないうちは自動再生で音を出させない
 const Controls = createContext<{
-  muted: boolean; toggleMute: () => void; activated: boolean; activate: () => void; isAdmin: boolean;
+  muted: boolean; toggleMute: () => boolean; activated: boolean; activate: () => void; isAdmin: boolean;
 }>({
   muted: false,
-  toggleMute: () => {},
+  toggleMute: () => false,
   activated: true,
   activate: () => {},
   isAdmin: false,
@@ -402,11 +402,23 @@ export function SwipeFeed({
   const browserActivated = useSyncExternalStore(subscribeActivation, readActivation, () => false);
   const [touched, setActivated] = useState(false);
   const activated = browserActivated || touched;
+  // 起動してから初めて画面に触れた時刻。そのタップ(動画・ミュートボタン)は「音を出す」として扱う
+  // (触れた瞬間に「触った」状態になるため、そのままだと最初のタップで逆にミュートになってしまう)
+  const firstTouchAt = useRef(0);
   const controls = useMemo(
     () => ({
       muted,
-      // まだ音を出せない状態で押されたら、ミュートにせず音を出す(この操作で音を出せるようになる)
-      toggleMute: () => (activated ? setMuted((m) => !m) : (setActivated(true), setMuted(false))),
+      // 音のオン・オフを切り替え、切り替えたあとに音が出るか(true)を返す
+      toggleMute: () => {
+        if (!activated || Date.now() - firstTouchAt.current < 1500) {
+          firstTouchAt.current = 0;
+          setActivated(true);
+          setMuted(false);
+          return true;
+        }
+        setMuted(!muted);
+        return muted;
+      },
       activated,
       activate: () => setActivated(true),
       isAdmin,
@@ -426,7 +438,10 @@ export function SwipeFeed({
         ["--bar" as string]: "calc(var(--slot) + 8px + env(safe-area-inset-top))",
       }}
       onPointerDown={() => {
-        if (!activated) setActivated(true);
+        if (!activated) {
+          firstTouchAt.current = Date.now();
+          setActivated(true);
+        }
       }}
       // ボタン・リンク(推しのアイコン・更新・開く・共有・ミュート・設定・管理、動画のタップ)を押したら軽く振動させる
       onClickCapture={(event) => {
@@ -531,7 +546,7 @@ export function SwipeFeed({
                   live={i === current && view === "feed"}
                   near={Math.abs(i - current) <= 1}
                   muted={muted}
-                  onToggleSound={() => setMuted((m) => !m)}
+                  onToggleSound={controls.toggleMute}
                 />
               ) : slide.kind === "tiktok" ? (
                 <TikTokSlide
@@ -542,7 +557,7 @@ export function SwipeFeed({
                   oshi={active}
                   live={i === current && view === "feed"}
                   muted={muted}
-                  onToggleSound={() => setMuted((m) => !m)}
+                  onToggleSound={controls.toggleMute}
                 />
               ) : slide.kind === "tweet" ? (
                 <TweetSlide
@@ -820,7 +835,7 @@ function Info({ platform, oshi, from, time, title, isNew }: {
 
 // 動画・記事の1枚
 function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
-  item: TimelineItem; from: string; oshi: Oshi; live: boolean; near: boolean; muted: boolean; onToggleSound: () => void;
+  item: TimelineItem; from: string; oshi: Oshi; live: boolean; near: boolean; muted: boolean; onToggleSound: () => boolean;
 }) {
   const title = decodeEntities(item.title);
   const isNew = item.published_at > oshi.last_seen_at;
@@ -829,7 +844,7 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   const short = isYoutubeShort(item.url);
   const frame = useRef<HTMLIFrameElement>(null);
 
-  const { activated, activate } = useContext(Controls);
+  const { activated } = useContext(Controls);
   const send = useCallback((func: string) => {
     frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args: [] }), "*");
   }, []);
@@ -874,15 +889,11 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
     return () => window.removeEventListener("message", onMessage);
   }, [live, send]);
 
+  // タップは音のオン・オフだけ。タップの操作の中ですぐ命令を送る(ブラウザが音を許すのは操作の中だけのため)
   const tap = () => {
-    if (!muted && !activated) {
-      // 初めて触ったとき: 音をオンにする(このタップで音を出せるようになる)
-      activate();
-      send("unMute");
-      send("playVideo");
-      return;
-    }
-    onToggleSound();
+    const on = onToggleSound();
+    send(on ? "unMute" : "mute");
+    send("playVideo");
   };
 
   // 字幕は出さない(動画の設定で字幕が自動で出るものも、読み込み後に字幕を外す)
@@ -1283,7 +1294,7 @@ function TweetSlide({ source, id, at, from, oshi, near, live }: {
 // TikTok の動画1本。TikTok 公式の動画プレーヤーを全画面で出す。画面に出ている1本だけ読み込み、自動で再生する。
 // タップで音のオン・オフ(プレーヤーに命令を送る)
 function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }: {
-  source: Source; id: string; at: string | null; from: string; oshi: Oshi; live: boolean; muted: boolean; onToggleSound: () => void;
+  source: Source; id: string; at: string | null; from: string; oshi: Oshi; live: boolean; muted: boolean; onToggleSound: () => boolean;
 }) {
   const handle = source.handle.replace(/^@/, "");
   const url = `https://www.tiktok.com/@${handle}/video/${id}`;
@@ -1349,7 +1360,13 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
         </div>
       </div>
       {/* 動画の上の透明な層: 上下のスワイプを受け取り、タップで音を切り替える */}
-      <button type="button" aria-label={muted ? "音を出す" : "音を消す"} onClick={onToggleSound} className="absolute inset-0 z-[5] cursor-pointer" />
+      <button type="button" aria-label={muted ? "音を出す" : "音を消す"} onClick={() => {
+          const on = onToggleSound();
+          send(on ? "unMute" : "mute");
+          send("play");
+        }}
+        className="absolute inset-0 z-[5] cursor-pointer"
+      />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent" />
       <SideActions oshi={oshi} url={url} title={`${oshi.name}のTikTok`} platform="TikTok" />
       <Info platform="TikTok" oshi={oshi} from={from} time={at ? formatRelative(at) : ""} title={`TikTok @${handle}`} isNew={at ? at > oshi.last_seen_at : false} />

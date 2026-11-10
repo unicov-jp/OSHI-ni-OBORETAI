@@ -44,11 +44,9 @@ export default async function PricingPage() {
 
       {/* 無料 */}
       <section className="rounded-2xl border border-line bg-surface p-5">
-        <div className="flex items-baseline justify-between gap-3">
+        <div className="flex h-11 items-center justify-between gap-3">
           <h2 className="text-lg font-bold">{labels.free}</h2>
-          <span className="num text-sm">
-            <b className="text-base">0円</b>
-          </span>
+          <span className="num text-lg font-bold">0円</span>
         </div>
         <p className="num mt-1 text-xs text-muted">推し{FREE_OSHI}人まで・SNS 15件まで</p>
       </section>
@@ -58,10 +56,10 @@ export default async function PricingPage() {
         {perOshi !== null ? (
           <>
             <PriceSimulator name={labels.paid} perOshi={perOshi} freeOshi={FREE_OSHI} maxOshi={PAID_MAX_OSHI} />
-            <p className="num mt-2 text-xs text-muted">推し{PAID_MAX_OSHI}人まで・SNS 300件まで</p>
+            <p className="num mt-1 text-xs text-muted">推し{PAID_MAX_OSHI}人まで・SNS 300件まで</p>
           </>
         ) : (
-          <div className="flex items-baseline justify-between gap-3">
+          <div className="flex h-11 items-center justify-between gap-3">
             <h2 className="text-lg font-bold">{labels.paid}</h2>
             <span className="text-sm">準備中</span>
           </div>

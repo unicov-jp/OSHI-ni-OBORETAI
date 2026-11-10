@@ -6,14 +6,24 @@ import { useState } from "react";
 export function PriceSimulator({ name, perOshi, freeOshi, maxOshi }: { name: string; perOshi: number; freeOshi: number; maxOshi: number }) {
   const [count, setCount] = useState(freeOshi + 1);
   const price = Math.max(0, count - freeOshi) * perOshi;
-  const step = "flex h-7 w-9 items-center justify-center rounded-md bg-sunken text-xs disabled:opacity-30 active:scale-95";
+  const step = "flex h-5 w-8 items-center justify-center rounded bg-sunken text-[10px] leading-none disabled:opacity-30 active:scale-95";
 
+  // 高さは「無料」の箱の見出しの行(h-11)とそろえる
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex h-11 items-center gap-2">
       <h2 className="min-w-0 flex-1 truncate text-lg font-bold">{name}</h2>
-      <span className="num w-14 text-right">
+      <span className="num w-12 text-right">
         <span className="text-xl font-bold">{count}</span>
         <span className="ml-0.5 text-xs">人</span>
+      </span>
+      {/* 人数のすぐ右に ▲▼ を縦に並べる */}
+      <span className="flex flex-col gap-0.5">
+        <button type="button" className={step} onClick={() => setCount((c) => Math.min(maxOshi, c + 1))} disabled={count >= maxOshi} aria-label="1人増やす">
+          ▲
+        </button>
+        <button type="button" className={step} onClick={() => setCount((c) => Math.max(1, c - 1))} disabled={count <= 1} aria-label="1人減らす">
+          ▼
+        </button>
       </span>
       <span className="num w-28 text-right" aria-live="polite">
         {price === 0 ? (
@@ -24,14 +34,6 @@ export function PriceSimulator({ name, perOshi, freeOshi, maxOshi }: { name: str
             <span className="ml-1 text-lg font-bold">{price.toLocaleString("ja-JP")}円</span>
           </>
         )}
-      </span>
-      <span className="flex flex-col gap-1">
-        <button type="button" className={step} onClick={() => setCount((c) => Math.min(maxOshi, c + 1))} disabled={count >= maxOshi} aria-label="1人増やす">
-          ▲
-        </button>
-        <button type="button" className={step} onClick={() => setCount((c) => Math.max(1, c - 1))} disabled={count <= 1} aria-label="1人減らす">
-          ▼
-        </button>
       </span>
     </div>
   );

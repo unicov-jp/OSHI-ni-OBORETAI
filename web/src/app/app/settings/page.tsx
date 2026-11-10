@@ -8,6 +8,7 @@ import { requireViewer } from "@/lib/auth";
 import { limitText, PLAN_LABEL } from "@/lib/plans";
 import { DEMO } from "@/lib/env";
 import { billingEnabled, proPriceLabel } from "@/lib/stripe";
+import { serverKeyCheck } from "@/lib/diagnostics";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "設定" };
@@ -36,6 +37,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const [{ notice }, viewer] = await Promise.all([searchParams, requireViewer()]);
   const [price, subscription] = await Promise.all([DEMO ? null : proPriceLabel(), subscriptionInfo()]);
   const banner = notice ? NOTICES[notice] : undefined;
+  const keyCheck = !DEMO && viewer.plan === "master" ? await serverKeyCheck(viewer.id) : null;
   const isPro = viewer.plan === "paid";
 
   return (
@@ -63,6 +65,19 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           </button>
         </form>
       </Section>
+
+      {keyCheck ? (
+        <Section title="サーバーの接続(マスターだけに表示)">
+          <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 text-sm">
+            <dt className="text-muted">鍵の種類</dt>
+            <dd className="[overflow-wrap:anywhere]">{keyCheck.kind}</dd>
+            <dt className="text-muted">書き込み</dt>
+            <dd className={`[overflow-wrap:anywhere] ${keyCheck.ok ? "text-ok" : "text-danger"}`}>
+              {keyCheck.ok ? "OK" : "NG"}: {keyCheck.detail}
+            </dd>
+          </dl>
+        </Section>
+      ) : null}
 
       <Section title="二段階認証">
         <MfaPanel enabled={viewer.hasMfa} isAdmin={viewer.role === "admin"} />

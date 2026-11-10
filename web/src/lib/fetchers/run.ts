@@ -156,3 +156,41 @@ export async function runUserFeeds(admin: SupabaseClient, userId: string, timeLi
   }
   return totals;
 }
+
+// 推しを1人選んだとき: その推しに登録した取得元のうち、前回の取得から10分以上たったものだけを取りに行く。
+// 確保した時点で last_fetched_at を進め、続けて押されても二重に取得しない。
+export async function runOshiFeeds(admin: SupabaseClient, userId: string, oshiId: string) {
+  const totals = { claimed: 0, ok: 0, failed: 0, added: 0 };
+  const { data: rows } = await admin
+    .from("oshikatsu_sources")
+    .select("feed_id")
+    .eq("user_id", userId)
+    .eq("oshi_id", oshiId)
+    .not("feed_id", "is", null);
+  const ids = [...new Set((rows ?? []).map((r) => r.feed_id as string))].slice(0, 30);
+  if (ids.length === 0) return totals;
+
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const { data, error } = await admin
+    .from("oshikatsu_feeds")
+    .update({ last_fetched_at: new Date().toISOString() })
+    .in("id", ids)
+    .eq("status", "active")
+    .or(`last_fetched_at.is.null,last_fetched_at.lt.${cutoff}`)
+    .select("id, platform, external_key, feed_url, title, error_count");
+  if (error) throw new Error(`取得対象の確保に失敗しました: ${error.message}`);
+  const feeds = (data ?? []) as FeedRow[];
+  totals.claimed = feeds.length;
+
+  const queue = [...feeds];
+  const workers = Array.from({ length: Math.min(5, queue.length) }, async () => {
+    for (let feed = queue.shift(); feed; feed = queue.shift()) {
+      const result = await runFeed(admin, feed);
+      if (result.ok) totals.ok++;
+      else totals.failed++;
+      totals.added += result.added;
+    }
+  });
+  await Promise.all(workers);
+  return totals;
+}

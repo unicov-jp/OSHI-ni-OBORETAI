@@ -11,6 +11,7 @@ import { MEMBER_COLORS } from "@/lib/platforms";
 
 // 推しの登録・編集。今のアプリ(推し活手帳)と同じ項目を、同じ記録に保存する。
 // 写真・ギャラリーの変更は、今のところ今のアプリで行う(ここでは触らず、そのまま残す)。
+// 事務所は入力しない(今のアプリで入っている値は、そのまま残す)。
 
 const blank = (): OshiEditable => ({
   name: "",
@@ -23,7 +24,7 @@ const blank = (): OshiEditable => ({
   groups: [],
 });
 
-export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: (message: string) => void }) {
+export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: (message: string, id?: string) => void }) {
   const [value, setValue] = useState<OshiEditable | null>(oshiId ? null : blank());
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -58,7 +59,7 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
       // 入力したSNSを、新着を取る先としても登録する(登録済みのものは重ねない)
       const imported = await importAllSns();
       const count = imported.ok && imported.data ? imported.data.added + imported.data.linked : 0;
-      onDone(`保存しました。今のアプリにも反映されます${count > 0 ? `(SNSを${count}件登録しました)` : ""}`);
+      onDone(`保存しました。今のアプリにも反映されます${count > 0 ? `(SNSを${count}件登録しました)` : ""}`, result.data?.id);
     });
   };
 
@@ -113,41 +114,30 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
           </div>
         </fieldset>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="事務所">
-            <input
-              className={inputClass}
-              value={value.agency}
-              maxLength={40}
-              onChange={(e) => set({ agency: e.target.value })}
-              placeholder="未設定"
-            />
-          </Field>
-          <fieldset>
-            <legend className="mb-1 text-[13px] font-medium">誕生日</legend>
-            <div className="flex gap-2">
-              <select className={inputClass} value={value.birthMonth} onChange={(e) => set({ birthMonth: e.target.value })} aria-label="月">
-                <option value="">月</option>
-                {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((m) => (
-                  <option key={m} value={m}>{m}月</option>
-                ))}
-              </select>
-              <select className={inputClass} value={value.birthDay} onChange={(e) => set({ birthDay: e.target.value })} aria-label="日">
-                <option value="">日</option>
-                {Array.from({ length: 31 }, (_, i) => String(i + 1)).map((d) => (
-                  <option key={d} value={d}>{d}日</option>
-                ))}
-              </select>
-            </div>
-          </fieldset>
-        </div>
+        <fieldset>
+          <legend className="mb-1 text-[13px] font-medium">誕生日</legend>
+          <div className="flex gap-2">
+            <select className={inputClass} value={value.birthMonth} onChange={(e) => set({ birthMonth: e.target.value })} aria-label="月">
+              <option value="">月</option>
+              {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((m) => (
+                <option key={m} value={m}>{m}月</option>
+              ))}
+            </select>
+            <select className={inputClass} value={value.birthDay} onChange={(e) => set({ birthDay: e.target.value })} aria-label="日">
+              <option value="">日</option>
+              {Array.from({ length: 31 }, (_, i) => String(i + 1)).map((d) => (
+                <option key={d} value={d}>{d}日</option>
+              ))}
+            </select>
+          </div>
+        </fieldset>
       </div>
 
       <SnsFields title="本人のSNS" value={value.person} onChange={(person) => set({ person })} />
 
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-[15px] font-semibold">グループ(兼任は複数。先頭がメイン)</h3>
+          <h3 className="text-[15px] font-semibold">グループ</h3>
           <Button
             size="sm"
             disabled={value.groups.length >= 10}
@@ -160,7 +150,7 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
         {value.groups.map((group, index) => (
           <div key={group.id ?? `new-${index}`} className="space-y-3 rounded-xl border border-line p-4">
             <div className="flex items-end gap-2">
-              <Field label={index === 0 ? "グループ名(メイン)" : "グループ名"}>
+              <Field label="グループ名">
                 <input
                   className={inputClass}
                   value={group.name}

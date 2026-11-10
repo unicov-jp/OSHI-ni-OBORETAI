@@ -245,3 +245,16 @@ dialog::backdrop {
     animation: none;
   }
 }
+
+/* 新着・ギャラリー・カレンダーを左右のスワイプで切り替えたときに、横から滑り込ませる */
+@keyframes view-enter-right {
+  from { transform: translateX(28%); opacity: 0.4; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes view-enter-left {
+  from { transform: translateX(-28%); opacity: 0.4; }
+  to { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [style*="view-enter-"] { animation: none !important; }
+}

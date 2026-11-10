@@ -59,5 +59,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/login", "/app/:path*", "/admin/:path*", "/auth/mfa"],
+  // /api もログインの延長(セッションの更新)だけ行う。振り分けは /app・/admin だけ
+  matcher: ["/", "/login", "/app/:path*", "/admin/:path*", "/auth/mfa", "/api/:path*"],
 };

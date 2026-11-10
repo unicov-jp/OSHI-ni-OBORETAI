@@ -7,7 +7,12 @@ import type { Source } from "@/lib/types";
 
 declare global {
   interface Window {
-    twttr?: { widgets?: { load: (element?: HTMLElement) => void } };
+    twttr?: {
+      widgets?: {
+        load: (element?: HTMLElement) => void;
+        createTweet?: (id: string, element: HTMLElement, options?: Record<string, unknown>) => Promise<HTMLElement | undefined>;
+      };
+    };
   }
 }
 
@@ -30,11 +35,13 @@ function loadXScript(): Promise<void> {
   });
 }
 
-function XTimeline({ handle, url }: { handle: string; url: string }) {
+function XTimeline({ handle }: { handle: string; url: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const theme = useTheme();
-  // X の埋め込みは X 側の都合で表示されないことが多い。一定時間たっても表示されなければ案内に切り替える
+  // X の埋め込みは、このブラウザで X にログインしている(ログインの情報が残っている)と表示される。
+  // 時間がたっても表示されないときは、ログイン中の X で開く案内に切り替える。
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const container = ref.current;
@@ -46,7 +53,6 @@ function XTimeline({ handle, url }: { handle: string; url: string }) {
     anchor.dataset.height = String(FRAME_HEIGHT);
     anchor.dataset.theme = theme;
     anchor.dataset.chrome = "noheader nofooter noborders transparent";
-    anchor.dataset.dnt = "true";
     anchor.textContent = "";
     container.appendChild(anchor);
 
@@ -57,29 +63,131 @@ function XTimeline({ handle, url }: { handle: string; url: string }) {
     const timer = setTimeout(() => {
       const frame = container.querySelector("iframe");
       if (!cancelled && (!frame || frame.getBoundingClientRect().height < 80)) setFailed(true);
-    }, 8000);
+    }, 15000);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [handle, theme]);
+  }, [handle, theme, attempt]);
 
-  if (failed) return <Fallback label="X" url={url} reason="X の埋め込み表示が読み込めませんでした(X 側の制限で表示されないことがあります)。" />;
+  if (failed) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        <p className="text-sm text-muted">
+          X の投稿は、このブラウザで X にログインしていると表示されます。
+          ログインしていない場合や、ブラウザがほかのサイトの情報を使わない設定のときは表示されません。
+        </p>
+        <p className="text-sm font-semibold">右の「開く」から、ログイン中の X で見られます。</p>
+        <button
+          type="button"
+          onClick={() => {
+            setFailed(false);
+            setAttempt((n) => n + 1);
+          }}
+          className="flex h-10 items-center rounded-lg border border-line bg-surface px-4 text-sm font-semibold hover:bg-sunken"
+        >
+          もう一度読み込む
+        </button>
+      </div>
+    );
+  }
   return <div ref={ref} className="h-full overflow-y-auto" />;
 }
 
-function Fallback({ label, url, reason }: { label: string; url: string; reason: string }) {
+// TikTok 公式の「クリエイター埋め込み」(embed.js)。アカウントの最新の動画が並ぶ。
+function loadTikTokScript(): void {
+  const existing = document.getElementById("tiktok-embed");
+  if (existing) existing.remove();
+  const script = document.createElement("script");
+  script.id = "tiktok-embed";
+  script.src = "https://www.tiktok.com/embed.js";
+  script.async = true;
+  document.body.appendChild(script);
+}
+
+function TikTokCreator({ handle, url }: { handle: string; url: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const container = ref.current;
+    if (!container) return;
+    container.replaceChildren();
+    const quote = document.createElement("blockquote");
+    quote.className = "tiktok-embed";
+    quote.setAttribute("cite", `https://www.tiktok.com/@${handle}`);
+    quote.dataset.uniqueId = handle;
+    quote.dataset.embedType = "creator";
+    quote.style.maxWidth = "780px";
+    quote.style.minWidth = "288px";
+    quote.style.margin = "0";
+    const section = document.createElement("section");
+    const link = document.createElement("a");
+    link.href = `https://www.tiktok.com/@${handle}`;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = `@${handle}`;
+    section.appendChild(link);
+    quote.appendChild(section);
+    container.appendChild(quote);
+    // embed.js は読み込まれたときにページ内の埋め込みを探すので、毎回読み直す
+    loadTikTokScript();
+    const timer = setTimeout(() => {
+      if (!container.querySelector("iframe")) setFailed(true);
+    }, 15000);
+    return () => clearTimeout(timer);
+  }, [handle]);
+
+  if (failed) return <Fallback label="TikTok" url={url} reason="TikTok の埋め込み表示が読み込めませんでした。" />;
+  return <div ref={ref} className="h-full overflow-y-auto" />;
+}
+
+// X の投稿1件(公式の投稿埋め込み。ログインしていなくても表示される)
+export function XPostEmbed({ id, url, theme: forced }: { id: string; url: string; theme?: "light" | "dark" }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const appTheme = useTheme();
+  const theme = forced ?? appTheme;
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const container = ref.current;
+    if (!container) return;
+    container.replaceChildren();
+    let cancelled = false;
+    loadXScript().then(async () => {
+      const create = window.twttr?.widgets?.createTweet;
+      if (cancelled) return;
+      if (!create) return setFailed(true);
+      const element = await create(id, container, { theme, dnt: true, lang: "ja", align: "center", conversation: "none" });
+      if (!cancelled && !element) setFailed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, theme]);
+
+  if (failed) return <Fallback label="X" url={url} reason="この投稿を表示できませんでした(削除されたか、公開範囲が限られています)。" />;
+  return <div ref={ref} className="flex h-full items-start justify-center overflow-y-auto p-2" />;
+}
+
+// Instagram の投稿1件(公式の投稿埋め込み)
+export function InstagramPost({ code, title }: { code: string; title: string }) {
+  return (
+    <iframe
+      title={title}
+      src={`https://www.instagram.com/p/${code}/embed/captioned/`}
+      sandbox={SANDBOX}
+      referrerPolicy="strict-origin-when-cross-origin"
+      className="h-full w-full border-0 bg-white"
+    />
+  );
+}
+
+function Fallback({ reason }: { label: string; url: string; reason: string }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
       <p className="text-sm text-muted">{reason}</p>
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex h-10 items-center rounded-lg border border-line bg-surface px-4 text-sm font-semibold hover:bg-sunken"
-      >
-        {label}で開く
-      </a>
+      <p className="text-sm font-semibold">右の「開く」から見られます。</p>
     </div>
   );
 }
@@ -133,20 +241,14 @@ export function EmbedCard({
   } else if (handle && source.platform === "tiktok") {
     frame = (
       <LoadOnDemand label="TikTok" auto={autoLoad}>
-        <iframe
-          title={`${oshiName}のTikTok`}
-          src={`https://www.tiktok.com/embed/@${handle}`}
-          sandbox={SANDBOX}
-          referrerPolicy="strict-origin-when-cross-origin"
-          className="h-full w-full border-0 bg-white"
-        />
+        <TikTokCreator handle={handle} url={source.url} />
       </LoadOnDemand>
     );
   }
 
   return (
     <article className={`flex flex-col overflow-hidden bg-surface ${fill ? "h-full" : "rounded-xl border border-line"}`}>
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4">
+      <header className={`flex h-14 shrink-0 items-center gap-3 border-b border-line px-4 ${fill ? "hidden" : ""}`}>
         <div className="min-w-0 flex-1">
           <p className="clamp-1 text-sm font-semibold" title={oshiName}>
             {oshiName}
@@ -171,7 +273,7 @@ export function EmbedCard({
           </p>
         )}
       </div>
-      <p className="h-9 shrink-0 border-t border-line px-4 text-xs leading-9 whitespace-nowrap text-muted">
+      <p className={`h-9 shrink-0 border-t border-line px-4 text-xs leading-9 whitespace-nowrap text-muted ${fill ? "hidden" : ""}`}>
         表示されないときは「{label}で開く」から確認できます
       </p>
     </article>

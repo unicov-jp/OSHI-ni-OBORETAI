@@ -1,0 +1,542 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { OshiAvatar } from "@/components/oshi-avatar";
+import { addLive } from "@/lib/actions/records";
+import { useLongPress } from "@/lib/long-press";
+import type { CalendarEntry, GalleryPhoto, Oshi } from "@/lib/types";
+
+// 新着(SNS)の左右にある画面。
+// - ギャラリー(新着から左へスワイプ): 推しのギャラリーとチェキの写真を、上下のスワイプで1枚ずつ見る。
+//   右下の推しのアイコンを長押し(またはタップ)で、ギャラリーの写真・チェキを追加する
+// - カレンダー(新着から右へスワイプ): 推しの LIVE・チェキの記録を月ごとに見て、LIVE・チェキを登録する。
+//   上から推しのアイコン・カレンダーの順で位置を固定し、日付をタップするとカレンダーの下にその日の記録を出す。
+//   チェキの写真はギャラリーで見る
+// どちらも今のアプリ(推し活手帳)と同じ記録を読み書きする
+
+// ---------------- ギャラリー ----------------
+
+export function GalleryBody({ oshi, photos }: { oshi: Oshi; photos: GalleryPhoto[] }) {
+  const [adding, setAdding] = useState(false);
+  const avatarPress = useLongPress(() => setAdding(true));
+
+  return (
+    <>
+      {photos.length === 0 ? (
+        <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
+          <OshiAvatar oshi={oshi} size={72} />
+          <p className="text-lg font-bold">{oshi.name}</p>
+          <p className="text-sm text-white/70">ギャラリーとチェキの写真はまだありません。</p>
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="flex h-11 items-center rounded-full bg-white px-6 text-sm font-bold text-black"
+          >
+            写真を追加する
+          </button>
+        </div>
+      ) : (
+        <div className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain [scrollbar-width:none]">
+          {photos.map((photo, i) => (
+            <section key={photo.key} className="relative h-full w-full snap-start snap-always overflow-hidden">
+              <PhotoSlide photo={photo} eager={i < 2} />
+            </section>
+          ))}
+        </div>
+      )}
+
+      {/* 右下: 推しのアイコン(長押し・タップで写真を追加) */}
+      {photos.length > 0 ? (
+        <div className="absolute right-3 bottom-[calc(2rem+env(safe-area-inset-bottom))] z-10 flex flex-col items-center gap-1 text-[10.5px] font-bold [text-shadow:0_1px_3px_rgba(0,0,0,.6)]">
+          <button
+            type="button"
+            aria-label={`${oshi.name}(長押しで写真・チェキを追加)`}
+            className="rounded-full"
+            {...avatarPress}
+            onClick={() => setAdding(true)}
+          >
+            <OshiAvatar oshi={oshi} size={48} />
+          </button>
+          <span>追加</span>
+        </div>
+      ) : null}
+
+      {adding ? <AddSheet oshi={oshi} onClose={() => setAdding(false)} /> : null}
+    </>
+  );
+}
+
+function PhotoSlide({ photo, eager }: { photo: GalleryPhoto; eager: boolean }) {
+  const [broken, setBroken] = useState(false);
+  return (
+    <div className="absolute inset-0 pt-[var(--bar)]">
+      {broken ? (
+        <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center text-sm text-white/60">
+          <p>写真を読み込めませんでした。</p>
+          <p className="text-xs">Googleドライブに保存した写真は、ドライブとの接続が済むと表示されます。</p>
+        </div>
+      ) : (
+        <>
+          {/* 背景: 同じ写真をぼかして敷く(写真の縦横比が画面と違っても余白を目立たせない) */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={photo.src} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-50 blur-2xl" loading={eager ? "eager" : "lazy"} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={photo.src}
+            alt={photo.kind === "cheki" ? `${photo.title}のチェキ` : "ギャラリーの写真"}
+            className="relative h-full w-full object-contain"
+            loading={eager ? "eager" : "lazy"}
+            onError={() => setBroken(true)}
+          />
+        </>
+      )}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/70 to-transparent" />
+      <div className="absolute bottom-[calc(2rem+env(safe-area-inset-bottom))] left-4 max-w-[calc(100%-6rem)] [text-shadow:0_1px_3px_rgba(0,0,0,.6)]">
+        <span className="mb-2 inline-block rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-bold">
+          {photo.kind === "cheki" ? "チェキ" : "ギャラリー"}
+        </span>
+        {photo.kind === "cheki" ? (
+          <>
+            <p className="truncate text-[15px] font-bold">{photo.title}</p>
+            <p className="num text-xs text-white/75">{formatDate(photo.date)}</p>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// 写真は端末で長い辺1080pxの JPEG に縮めてから送る(通信量とドライブの容量を抑える)
+async function shrink(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1080 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("encode"))), "image/jpeg", 0.85),
+  );
+}
+
+function todayJst(): string {
+  return new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+}
+
+// 追加のシート: 「ギャラリーに追加」か「チェキを追加」を選び、写真を選んで保存する
+// initialMode: カレンダーから開いたときは「チェキを追加」から始める(日付はタップした日)
+function AddSheet({ oshi, onClose, initialMode = "menu", initialDate }: {
+  oshi: Oshi; onClose: () => void; initialMode?: "menu" | "cheki"; initialDate?: string;
+}) {
+  const router = useRouter();
+  const [mode, setMode] = useState<"menu" | "gallery" | "cheki">(initialMode);
+  const [files, setFiles] = useState<File[]>([]);
+  const [title, setTitle] = useState("");
+  const [date, setDate] = useState(() => initialDate ?? todayJst());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const previews = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files]);
+  useEffect(() => () => previews.forEach((u) => URL.revokeObjectURL(u)), [previews]);
+
+  const pick = (next: "gallery" | "cheki") => {
+    setMode(next);
+    setFiles([]);
+    setError(null);
+    // ギャラリーはすぐに写真を選ぶ画面を開く
+    if (next === "gallery") setTimeout(() => input.current?.click(), 0);
+  };
+
+  const save = async () => {
+    if (files.length === 0) return setError("写真を選んでください");
+    if (mode === "cheki" && !title.trim()) return setError("イベント名を入力してください");
+    setBusy(true);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.set("target", mode);
+      body.set("oshiId", oshi.id);
+      if (mode === "cheki") {
+        body.set("title", title.trim());
+        body.set("date", date);
+      }
+      for (const [i, file] of files.entries()) body.append("photos", await shrink(file), `photo_${i}.jpg`);
+      const response = await fetch("/api/photo", { method: "POST", body });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "保存できませんでした");
+      onClose();
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "保存できませんでした");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-end bg-black/60 text-white" onClick={busy ? undefined : onClose} role="presentation">
+      <div
+        role="dialog"
+        aria-label="写真を追加"
+        onClick={(event) => event.stopPropagation()}
+        className="max-h-[90dvh] w-full overflow-y-auto rounded-t-3xl bg-[#111] px-4 pt-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-2xl"
+      >
+        <span aria-hidden className="mx-auto mb-4 block h-1 w-10 rounded-full bg-white/25" />
+        <div className="mb-3 flex items-center gap-3 px-1">
+          <OshiAvatar oshi={oshi} size={40} />
+          <p className="truncate text-[15px] font-bold">
+            {mode === "menu" ? `${oshi.name}に写真を追加` : mode === "gallery" ? "ギャラリーに追加" : "チェキを追加"}
+          </p>
+        </div>
+
+        <input
+          ref={input}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            const list = Array.from(event.target.files ?? []).filter((f) => f.type.startsWith("image/")).slice(0, 10);
+            event.target.value = "";
+            if (list.length > 0) setFiles(list);
+          }}
+        />
+
+        {mode === "menu" ? (
+          <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
+            <li>
+              <button type="button" onClick={() => pick("gallery")} className="flex min-h-[60px] w-full flex-col justify-center px-4 py-2 text-left active:bg-white/10">
+                <span className="text-[15px] font-semibold">ギャラリーに追加</span>
+                <span className="text-xs text-white/55">推しの写真を何枚でも</span>
+              </button>
+            </li>
+            <li>
+              <button type="button" onClick={() => pick("cheki")} className="flex min-h-[60px] w-full flex-col justify-center px-4 py-2 text-left active:bg-white/10">
+                <span className="text-[15px] font-semibold">チェキを追加</span>
+                <span className="text-xs text-white/55">イベント名・日付と一緒に記録(カレンダーにも出ます)</span>
+              </button>
+            </li>
+          </ul>
+        ) : (
+          <div className="space-y-3">
+            {mode === "cheki" ? (
+              <>
+                <label className="block">
+                  <span className="mb-1 block text-xs text-white/60">イベント名</span>
+                  <input
+                    value={title}
+                    maxLength={60}
+                    onChange={(event) => setTitle(event.target.value)}
+                    className="h-11 w-full rounded-xl bg-white/10 px-3 text-[15px] outline-none focus:ring-2 focus:ring-white/40"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs text-white/60">日付</span>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(event) => setDate(event.target.value)}
+                    className="h-11 w-full rounded-xl bg-white/10 px-3 text-[15px] outline-none [color-scheme:dark] focus:ring-2 focus:ring-white/40"
+                  />
+                </label>
+              </>
+            ) : null}
+
+            <div className="grid grid-cols-4 gap-2">
+              {previews.map((url) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={url} src={url} alt="" className="aspect-square w-full rounded-lg object-cover" />
+              ))}
+              <button
+                type="button"
+                onClick={() => input.current?.click()}
+                className="flex aspect-square w-full items-center justify-center rounded-lg border border-dashed border-white/30 text-xs text-white/70"
+              >
+                {files.length > 0 ? "選び直す" : "写真を選ぶ"}
+              </button>
+            </div>
+
+            {error ? <p className="text-sm text-[#ff6b8f]">{error}</p> : null}
+
+            <button
+              type="button"
+              disabled={busy || files.length === 0}
+              onClick={() => void save()}
+              className="h-12 w-full rounded-2xl bg-white text-[15px] font-bold text-black disabled:opacity-40"
+            >
+              {busy ? "保存中" : `${files.length > 0 ? `${files.length}枚を` : ""}保存する`}
+            </button>
+          </div>
+        )}
+
+        <button
+          type="button"
+          disabled={busy}
+          onClick={mode === "menu" || initialMode !== "menu" ? onClose : () => setMode("menu")}
+          className="mt-3 h-12 w-full rounded-2xl bg-white/10 text-[15px] font-semibold"
+        >
+          {mode === "menu" || initialMode !== "menu" ? "閉じる" : "戻る"}
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ---------------- カレンダー ----------------
+
+const TYPE_LABEL: Record<CalendarEntry["type"], string> = { live: "LIVE", cheki: "チェキ" };
+const TYPE_COLOR: Record<CalendarEntry["type"], string> = { live: "#ff2d6f", cheki: "#ffd23f" };
+const WEEK = ["日", "月", "火", "水", "木", "金", "土"];
+
+function formatDate(date: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return date;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return `${m[1]}年${Number(m[2])}月${Number(m[3])}日(${WEEK[d.getDay()]})`;
+}
+
+const field = "h-11 w-full rounded-xl bg-white/10 px-3 text-[15px] outline-none [color-scheme:dark] focus:ring-2 focus:ring-white/40";
+
+export function CalendarBody({ oshi, entries }: { oshi: Oshi; entries: CalendarEntry[] }) {
+  const router = useRouter();
+  const today = todayJst();
+  const [month, setMonth] = useState(today.slice(0, 7));
+  // タップした日(最初は今日)。その日の記録をカレンダーの下に出す
+  const [selected, setSelected] = useState(today);
+  const [adding, setAdding] = useState<"live" | "cheki" | null>(null);
+
+  const byDate = useMemo(() => {
+    const map = new Map<string, CalendarEntry[]>();
+    for (const e of entries) {
+      if (!map.has(e.date)) map.set(e.date, []);
+      map.get(e.date)!.push(e);
+    }
+    return map;
+  }, [entries]);
+
+  const [y, m] = month.split("-").map(Number);
+  const first = new Date(y, m - 1, 1).getDay();
+  const days = new Date(y, m, 0).getDate();
+  const cells: (string | null)[] = [
+    ...Array.from({ length: first }, () => null),
+    ...Array.from({ length: days }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const shift = (step: number) => {
+    const d = new Date(y, m - 1 + step, 1);
+    setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  };
+  const list = byDate.get(selected) ?? [];
+  const nav = "flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-lg active:bg-white/20";
+  const addButton = "flex h-9 items-center rounded-full bg-white/15 px-3 text-[13px] font-bold active:bg-white/25";
+
+  return (
+    <div className="flex h-full flex-col pt-[calc(var(--bar)+0.5rem)] pb-[env(safe-area-inset-bottom)]">
+      {/* カレンダー(位置は固定。下の記録だけが動く) */}
+      <div className="mx-auto w-full max-w-[520px] shrink-0 px-3">
+        <div className="mb-1 flex items-center justify-between">
+          <button type="button" className={nav} onClick={() => shift(-1)} aria-label="前の月">‹</button>
+          <button
+            type="button"
+            className="num text-base font-bold"
+            onClick={() => {
+              setMonth(today.slice(0, 7));
+              setSelected(today);
+            }}
+          >
+            {y}年{m}月
+          </button>
+          <button type="button" className={nav} onClick={() => shift(1)} aria-label="次の月">›</button>
+        </div>
+        <div className="grid grid-cols-7 text-center text-[11px] text-white/50">
+          {WEEK.map((w, i) => (
+            <span key={w} className={i === 0 ? "text-[#ff6b8f]" : i === 6 ? "text-[#6bb8ff]" : ""}>{w}</span>
+          ))}
+        </div>
+        <div className="mt-1 grid grid-cols-7 gap-0.5">
+          {cells.map((date, i) => {
+            if (!date) return <span key={`blank-${i}`} className="h-[min(44px,calc((100dvh-var(--bar))/13))]" />;
+            const items = byDate.get(date) ?? [];
+            const on = date === selected;
+            return (
+              <button
+                key={date}
+                type="button"
+                onClick={() => setSelected(date)}
+                className={`num flex h-[min(44px,calc((100dvh-var(--bar))/13))] flex-col items-center justify-center gap-0.5 rounded-lg text-sm ${
+                  on ? "bg-white text-black" : ""
+                } ${date === today && !on ? "ring-1 ring-white/60" : ""}`}
+                aria-label={`${formatDate(date)}${items.length > 0 ? `、記録${items.length}件` : ""}`}
+                aria-pressed={on}
+              >
+                {Number(date.slice(8))}
+                <span className="flex h-1.5 gap-0.5">
+                  {[...new Set(items.map((e) => e.type))].map((t) => (
+                    <span key={t} className="h-1.5 w-1.5 rounded-full" style={{ background: TYPE_COLOR[t] }} />
+                  ))}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* タップした日の記録 */}
+      <div className="mx-auto mt-2 flex min-h-0 w-full max-w-[520px] flex-1 flex-col border-t border-white/10 px-4 pt-3">
+        <div className="mb-2 flex shrink-0 items-center gap-2">
+          <h2 className="num min-w-0 flex-1 truncate text-[15px] font-bold">{formatDate(selected)}</h2>
+          <button type="button" className={addButton} onClick={() => setAdding("live")}>＋LIVE</button>
+          <button type="button" className={addButton} onClick={() => setAdding("cheki")}>＋チェキ</button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 [scrollbar-width:none]">
+          {list.length === 0 ? (
+            <p className="text-sm text-white/55">この日の記録はありません。</p>
+          ) : (
+            <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
+              {list.map((e) => {
+                const body = (
+                  <>
+                    <span
+                      className="w-12 shrink-0 rounded px-1 py-0.5 text-center text-[10px] font-bold text-black"
+                      style={{ background: TYPE_COLOR[e.type] }}
+                    >
+                      {TYPE_LABEL[e.type]}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] font-semibold">{e.title}</span>
+                      {e.sub ? <span className="num block truncate text-xs text-white/55">{e.sub}</span> : null}
+                    </span>
+                  </>
+                );
+                return (
+                  <li key={`${e.type}-${e.id}`}>
+                    {e.type === "cheki" ? (
+                      // チェキの写真はギャラリーで見る
+                      <button
+                        type="button"
+                        onClick={() => router.replace(`/app?tab=${encodeURIComponent(oshi.id)}&view=gallery`, { scroll: false })}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-white/10"
+                      >
+                        {body}
+                        <span className="shrink-0 text-xs text-white/55">ギャラリーで見る ›</span>
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-3 px-4 py-3">{body}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {adding === "live" ? <LiveSheet oshi={oshi} date={selected} onClose={() => setAdding(null)} /> : null}
+      {adding === "cheki" ? <AddSheet oshi={oshi} initialMode="cheki" initialDate={selected} onClose={() => setAdding(null)} /> : null}
+    </div>
+  );
+}
+
+// LIVE の登録(イベント名・日付・開始時刻・会場・観戦方法・メモ)
+function LiveSheet({ oshi, date: initialDate, onClose }: { oshi: Oshi; date: string; onClose: () => void }) {
+  const router = useRouter();
+  const [title, setTitle] = useState("");
+  const [date, setDate] = useState(initialDate);
+  const [startTime, setStartTime] = useState("");
+  const [venue, setVenue] = useState("");
+  const [viewing, setViewing] = useState<"venue" | "stream" | "tbd">("venue");
+  const [memo, setMemo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    if (!title.trim()) return setError("イベント名を入力してください");
+    setBusy(true);
+    setError(null);
+    const result = await addLive({ oshiId: oshi.id, date, title, startTime, venue, viewing, memo });
+    setBusy(false);
+    if (!result.ok) return setError(result.error);
+    onClose();
+    router.refresh();
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-end bg-black/60 text-white" onClick={busy ? undefined : onClose} role="presentation">
+      <div
+        role="dialog"
+        aria-label="LIVEを登録"
+        onClick={(event) => event.stopPropagation()}
+        className="max-h-[90dvh] w-full overflow-y-auto rounded-t-3xl bg-[#111] px-4 pt-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-2xl"
+      >
+        <span aria-hidden className="mx-auto mb-4 block h-1 w-10 rounded-full bg-white/25" />
+        <div className="mb-3 flex items-center gap-3 px-1">
+          <OshiAvatar oshi={oshi} size={40} />
+          <p className="truncate text-[15px] font-bold">LIVEを登録</p>
+        </div>
+        <div className="space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-xs text-white/60">イベント名</span>
+            <input value={title} maxLength={60} onChange={(e) => setTitle(e.target.value)} className={field} />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="mb-1 block text-xs text-white/60">日付</span>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={field} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-white/60">開始時刻(任意)</span>
+              <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className={field} />
+            </label>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-xs text-white/60">会場(任意)</span>
+            <input value={venue} maxLength={60} onChange={(e) => setVenue(e.target.value)} className={field} />
+          </label>
+          <div>
+            <span className="mb-1 block text-xs text-white/60">観戦</span>
+            <div className="grid grid-cols-3 gap-2">
+              {([["venue", "現地"], ["stream", "配信"], ["tbd", "未定"]] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={viewing === key}
+                  onClick={() => setViewing(key)}
+                  className={`h-10 rounded-xl text-sm font-bold ${viewing === key ? "bg-white text-black" : "bg-white/10"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-xs text-white/60">メモ(任意)</span>
+            <textarea
+              value={memo}
+              maxLength={500}
+              onChange={(e) => setMemo(e.target.value)}
+              className="min-h-[72px] w-full rounded-xl bg-white/10 px-3 py-2 text-[15px] outline-none focus:ring-2 focus:ring-white/40"
+            />
+          </label>
+          {error ? <p className="text-sm text-[#ff6b8f]">{error}</p> : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void save()}
+            className="h-12 w-full rounded-2xl bg-white text-[15px] font-bold text-black disabled:opacity-40"
+          >
+            {busy ? "保存中" : "登録する"}
+          </button>
+        </div>
+        <button type="button" disabled={busy} onClick={onClose} className="mt-3 h-12 w-full rounded-2xl bg-white/10 text-[15px] font-semibold">
+          閉じる
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}

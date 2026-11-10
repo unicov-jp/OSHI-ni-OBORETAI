@@ -4,6 +4,9 @@ import { parseFeedXml } from "@/lib/fetchers/rss";
 import { isPublicAddress, safeFetchText } from "@/lib/fetchers/safe-fetch";
 import { embedHandle, parseAccountUrl } from "@/lib/platforms";
 import { recordsToLibrary } from "@/lib/records";
+import { mediaFromPostEmbed, postCodesFromEmbed } from "@/lib/fetchers/instagram";
+import { postsFromSyndication, tweetFromResult } from "@/lib/fetchers/x";
+import { videosFromEmbed } from "@/lib/fetchers/tiktok";
 import { editableFrom, emptySns, mergeIntoRecord, toStoredSns } from "@/lib/oshi-record";
 import { decodeEntities, hostOf } from "@/lib/text";
 import { channelFromPage } from "@/lib/fetchers/youtube";
@@ -110,6 +113,76 @@ async function main() {
   check("埋め込みハンドルの検証(不正)", embedHandle("x", '@a"onload=x'), null);
   check("埋め込みハンドルの検証(正常)", embedHandle("tiktok", "@some.user"), "some.user");
 
+  // --- Instagram の埋め込みページから投稿のコードを読む ---
+  check(
+    "Instagram 投稿コード",
+    postCodesFromEmbed('{"shortcode":"DAbc123xyz"} <a href="/p/DAbc123xyz/"> https:\\/\\/www.instagram.com\\/reel\\/CReel99abc\\/ <a href="/p/C2second_1/">'),
+    ["DAbc123xyz", "CReel99abc", "C2second_1"],
+  );
+  check(
+    "Instagram 投稿コード(文字列の中のJSON)",
+    postCodesFromEmbed('"contextJSON":"{\\"shortcode\\":\\"DEsc4ped01\\",\\"url\\":\\"https:\\\\/\\\\/www.instagram.com\\\\/p\\\\/DEsc4ped02\\\\/\\"}"'),
+    ["DEsc4ped01", "DEsc4ped02"],
+  );
+  check(
+    "Instagram 写真のURL",
+    mediaFromPostEmbed('<img class="EmbeddedMediaImage" alt="" src="https://scontent-nrt1-1.cdninstagram.com/v/t51/abc.jpg?stp=1&amp;_nc=2">'),
+    { image: "https://scontent-nrt1-1.cdninstagram.com/v/t51/abc.jpg?stp=1&_nc=2", video: false },
+  );
+  check(
+    "Instagram 写真のURL(JSONの中)",
+    mediaFromPostEmbed('{\\"display_url\\":\\"https:\\\\/\\\\/scontent.cdninstagram.com\\\\/v\\\\/x.jpg?a=1\\\\u0026b=2\\",\\"is_video\\":true}'),
+    { image: "https://scontent.cdninstagram.com/v/x.jpg?a=1&b=2", video: true },
+  );
+  check("Instagram ほかのサイトの画像は使わない", mediaFromPostEmbed('<img class="EmbeddedMediaImage" src="https://evil.example.com/a.jpg">').image, null);
+  check("Instagram 投稿なし", postCodesFromEmbed("<html></html>"), []);
+
+  // --- X の投稿の番号と日時を読む ---
+  check(
+    "X 投稿(__NEXT_DATA__)",
+    postsFromSyndication('<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"timeline":{"entries":[{"content":{"tweet":{"id_str":"1855000000000000111","created_at":"Mon Nov 10 09:00:00 +0000 2026"}}},{"content":{"tweet":{"id_str":"1855000000000000222","created_at":"Tue Nov 11 09:00:00 +0000 2026"}}}]}}}}</script>').map((p) => p.id),
+    ["1855000000000000222", "1855000000000000111"],
+  );
+  check(
+    "X 投稿の中身(長い投稿・写真・動画)",
+    tweetFromResult({
+      id_str: "1855000000000000222",
+      text: "short https://t.co/abc",
+      created_at: "Tue Nov 11 09:00:00 +0000 2026",
+      note_tweet: { note_tweet_results: { result: { text: "全文 &amp; 続き" } } },
+      user: { name: "名前", screen_name: "handle", profile_image_url_https: "https://pbs.twimg.com/a.jpg" },
+      mediaDetails: [
+        { type: "photo", media_url_https: "https://pbs.twimg.com/media/p.jpg", original_info: { width: 1200, height: 1600 } },
+        { type: "video", media_url_https: "https://pbs.twimg.com/v.jpg", original_info: { width: 720, height: 1280 }, video_info: { variants: [
+          { content_type: "video/mp4", bitrate: 100, url: "https://video.twimg.com/low.mp4" },
+          { content_type: "video/mp4", bitrate: 900, url: "https://video.twimg.com/high.mp4" },
+        ] } },
+        { type: "photo", media_url_https: "https://evil.example.com/x.jpg" },
+      ],
+    })?.media.map((m) => m.url).concat(["text"]),
+    ["https://pbs.twimg.com/media/p.jpg", "https://video.twimg.com/high.mp4", "text"],
+  );
+  check(
+    "X 投稿のリンク",
+    tweetFromResult({ id_str: "1", text: "見て https://t.co/abc", entities: { urls: [{ url: "https://t.co/abc", expanded_url: "https://example.com/live", display_url: "example.com/live" }] } })?.links,
+    [{ from: "https://t.co/abc", to: "https://example.com/live", display: "example.com/live" }],
+  );
+  check("X 投稿の本文(長い投稿は全文)", tweetFromResult({ id_str: "1", text: "x", note_tweet: { note_tweet_results: { result: { text: "全文 &amp; 続き" } } } })?.text, "全文 & 続き");
+  check("X 投稿なし", postsFromSyndication("<html></html>"), []);
+
+  // --- TikTok の動画の番号を読む ---
+  check(
+    "TikTok 動画(videoList)",
+    videosFromEmbed('{"user":{"id":"6800000000000000001"},"videoList":[{"id":"7400000000000000001","createTime":"1767225600"},{"id":"7400000000000000002","createTime":1767139200}]}').map((v) => v.id),
+    ["7400000000000000001", "7400000000000000002"],
+  );
+  check(
+    "TikTok 動画(リンク。アカウントの番号は拾わない)",
+    videosFromEmbed('<div class="videoList"></div><a href="https://www.tiktok.com/@a/video/7703157206035811585?x=1"></a><script>{"user":{"id":"6800000000000000001"}}</script><a href="/@a/video/7703157206035811586"></a>').map((v) => v.id),
+    ["7703157206035811585", "7703157206035811586"],
+  );
+  check("TikTok 動画なし", videosFromEmbed("<html></html>"), []);
+
   // --- 推しの記録の読み書き(今のアプリと共通) ---
   check("SNS: URLをIDに", toStoredSns("x", "https://x.com/iON_kono_"), "iON_kono_");
   check("SNS: @を外す", toStoredSns("instagram", "@utage.kotoha"), "utage.kotoha");
@@ -174,6 +247,14 @@ async function main() {
     "blog https://g2.example.com G2",
   ]);
   check("YouTubeのチャンネルID", lib.oshi[1].sns.map((s) => s.url), ["https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv"]);
+  const shared = recordsToLibrary(
+    [
+      { id: "m1", data: { name: "A", groups: [{ name: "G", sns_x: "g_official" }] } },
+      { id: "m2", data: { name: "B", groups: [{ name: "G" }] } },
+    ],
+    {},
+  );
+  check("同じグループの推しにグループのSNSを分け合う", shared.oshi[1].sns.map((s) => `${s.url} ${s.from}`), ["https://x.com/g_official G"]);
   check("分類の一覧", lib.categories.map((c) => c.id).sort(), ["agency:事務所A", "group:G1", "group:G2", "group:旧グループ"]);
 
   console.log(failed === 0 ? "\nすべて成功" : `\n${failed}件 失敗`);

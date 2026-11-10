@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { Wordmark } from "@/components/header";
-import { ThemeSwitch } from "@/components/theme-switch";
 
 // ログイン・二段階認証・案内など、1枚もののページの共通枠
 export function AuthFrame({ title, lead, children }: { title: string; lead?: string; children: ReactNode }) {
@@ -8,7 +7,6 @@ export function AuthFrame({ title, lead, children }: { title: string; lead?: str
     <div className="mx-auto flex min-h-dvh max-w-[1080px] flex-col px-5">
       <header className="flex h-14 items-center justify-between">
         <Wordmark />
-        <ThemeSwitch />
       </header>
       <main className="flex flex-1 items-center justify-center py-10">
         <div className="w-full max-w-[400px] rounded-2xl border border-line bg-surface p-7">

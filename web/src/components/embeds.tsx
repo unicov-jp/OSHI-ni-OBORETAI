@@ -86,8 +86,8 @@ function Fallback({ label, url, reason }: { label: string; url: string; reason: 
 
 // X と TikTok は、まとめて読み込むと相手側で制限がかかる(TikTok の overload-protect など)ため、
 // 押したものだけを読み込む。
-function LoadOnDemand({ label, children }: { label: string; children: React.ReactNode }) {
-  const [shown, setShown] = useState(false);
+function LoadOnDemand({ label, auto, children }: { label: string; auto?: boolean; children: React.ReactNode }) {
+  const [shown, setShown] = useState(Boolean(auto));
   if (shown) return <>{children}</>;
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
@@ -105,14 +105,17 @@ function LoadOnDemand({ label, children }: { label: string; children: React.Reac
 
 // SNSアカウント1件ぶんの公式埋め込み。枠の大きさは固定。
 // 表示の中身は各SNSが配信しており、当アプリは投稿を取得も保存もしない。
-export function EmbedCard({ source, oshiName }: { source: Source; oshiName: string }) {
+// fill: 親の高さいっぱいに広げる(新着のスワイプ画面用)。autoLoad: 押さなくても読み込む(画面に出ている1枚だけに使う)
+export function EmbedCard({
+  source, oshiName, fill = false, autoLoad = false,
+}: { source: Source; oshiName: string; fill?: boolean; autoLoad?: boolean }) {
   const handle = embedHandle(source.platform, source.handle);
   const label = PLATFORM_LABEL[source.platform];
 
   let frame: React.ReactNode = null;
   if (handle && source.platform === "x") {
     frame = (
-      <LoadOnDemand label="X">
+      <LoadOnDemand label="X" auto={autoLoad}>
         <XTimeline handle={handle} url={source.url} />
       </LoadOnDemand>
     );
@@ -129,7 +132,7 @@ export function EmbedCard({ source, oshiName }: { source: Source; oshiName: stri
     );
   } else if (handle && source.platform === "tiktok") {
     frame = (
-      <LoadOnDemand label="TikTok">
+      <LoadOnDemand label="TikTok" auto={autoLoad}>
         <iframe
           title={`${oshiName}のTikTok`}
           src={`https://www.tiktok.com/embed/@${handle}`}
@@ -142,7 +145,7 @@ export function EmbedCard({ source, oshiName }: { source: Source; oshiName: stri
   }
 
   return (
-    <article className="flex flex-col overflow-hidden rounded-xl border border-line bg-surface">
+    <article className={`flex flex-col overflow-hidden bg-surface ${fill ? "h-full" : "rounded-xl border border-line"}`}>
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4">
         <div className="min-w-0 flex-1">
           <p className="clamp-1 text-sm font-semibold" title={oshiName}>
@@ -161,7 +164,7 @@ export function EmbedCard({ source, oshiName }: { source: Source; oshiName: stri
           {label}で開く
         </a>
       </header>
-      <div style={{ height: FRAME_HEIGHT }} className="bg-sunken">
+      <div style={fill ? undefined : { height: FRAME_HEIGHT }} className={`bg-sunken ${fill ? "min-h-0 flex-1" : ""}`}>
         {frame ?? (
           <p className="flex h-full items-center justify-center px-6 text-center text-sm text-muted">
             このアカウントは埋め込み表示に対応していません。

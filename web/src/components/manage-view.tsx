@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
 import { OshiAvatar } from "@/components/oshi-avatar";
+import { OshiEditor } from "@/components/oshi-editor";
 import {
   Badge, Button, Clamp, EmptyState, inputClass, Notice,
 } from "@/components/ui";
@@ -15,10 +16,14 @@ import type { Category, Oshi, Platform, Source, Viewer } from "@/lib/types";
 
 type Props = { viewer: Viewer; oshi: Oshi[]; categories: Category[]; sources: Source[] };
 
-// 推しは今のアプリ(推し活手帳)の記録をそのまま表示する。推しの登録・編集は今のアプリで行い、
-// ここでは推しごとのSNS・Blog(新着を取る先)を登録する。
+// 推しの登録・編集と、推しごとのSNS・Blog(新着を取る先)の登録。
+// 推しは今のアプリ(推し活手帳)と同じ記録を読み書きするので、どちらで登録・編集しても互いに反映される。
 export function ManageView({ viewer, oshi, categories, sources }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  // 推しの編集画面: null = 閉じている、"new" = 新しく登録、それ以外 = 編集する推しの id
+  const [oshiEditing, setOshiEditing] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const oshiFull = atLimit(oshi.length, viewer.maxOshi);
   const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? "";
   const target = editingId ? oshi.find((o) => o.id === editingId) : undefined;
   const sourceFull = atLimit(sources.length, viewer.maxSources);
@@ -27,15 +32,20 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
     <div className="mx-auto max-w-[1000px]">
       <header className="flex min-h-[60px] flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl leading-7 font-bold">推しのSNS</h1>
+          <h1 className="text-xl leading-7 font-bold">推しの登録</h1>
           <p className="num text-[13px] text-muted">
             推し {limitText(oshi.length, viewer.maxOshi, "人")}、アカウント {limitText(sources.length, viewer.maxSources, "件")}
           </p>
         </div>
+        <Button variant="primary" className="w-[120px]" disabled={oshiFull} onClick={() => setOshiEditing("new")}>
+          推しを追加
+        </Button>
       </header>
 
-      <div className="mt-3">
-        <Notice>推しの追加・編集・削除は、今のアプリ(推し活手帳)で行ってください。ここには自動で反映されます。</Notice>
+      <div className="mt-3 space-y-2">
+        <Notice>推しの登録・編集は、今のアプリ(推し活手帳)と共通です。どちらで変えても、もう一方に反映されます。</Notice>
+        {oshiFull ? <Notice tone="warn">登録できる推しの上限({viewer.maxOshi}人)に達しています。</Notice> : null}
+        {message ? <Notice tone="ok">{message}</Notice> : null}
       </div>
 
       <ImportAll oshi={oshi} sources={sources} disabled={sourceFull} />
@@ -64,17 +74,24 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
               ].filter(Boolean).join(" / ");
               const count = sources.filter((s) => s.oshi_id === o.id).length;
               return (
-                <li key={o.id} className="flex h-[76px] min-w-0 items-center gap-4 rounded-xl border border-line bg-surface px-4">
-                  <OshiAvatar oshi={o} size={44} />
-                  <div className="min-w-0 flex-1">
-                    <Clamp className="text-[15px] font-semibold">{o.name}</Clamp>
-                    <Clamp className="text-[13px] text-muted">{labels || "所属なし"}</Clamp>
-                  </div>
+                <li key={o.id} className="flex h-[76px] min-w-0 items-center gap-3 rounded-xl border border-line bg-surface pr-3">
+                  <button
+                    type="button"
+                    onClick={() => setOshiEditing(o.id)}
+                    className="flex h-full min-w-0 flex-1 items-center gap-3 rounded-l-xl pl-4 text-left hover:bg-sunken"
+                    aria-label={`${o.name}を編集`}
+                  >
+                    <OshiAvatar oshi={o} size={44} />
+                    <span className="min-w-0 flex-1">
+                      <Clamp className="text-[15px] font-semibold">{o.name}</Clamp>
+                      <Clamp className="text-[13px] text-muted">{labels || "所属なし"}</Clamp>
+                    </span>
+                  </button>
                   <Badge>
                     <span className="num">{count}件</span>
                   </Badge>
-                  <Button size="sm" className="w-[88px]" onClick={() => setEditingId(o.id)}>
-                    SNSを登録
+                  <Button size="sm" className="w-[64px]" onClick={() => setEditingId(o.id)}>
+                    SNS
                   </Button>
                 </li>
               );
@@ -86,7 +103,7 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
       <Dialog
         open={target !== undefined}
         onClose={() => setEditingId(null)}
-        title={target ? `${target.name} のSNS` : ""}
+        title={target ? `${target.name} のSNS(新着を取る先)` : ""}
         wide
       >
         {target ? (
@@ -94,6 +111,24 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
             <SnsCandidates oshi={target} sources={sources.filter((s) => s.oshi_id === target.id)} disabled={sourceFull} />
             <SourceEditor key={target.id} oshiId={target.id} sources={sources.filter((s) => s.oshi_id === target.id)} />
           </div>
+        ) : null}
+      </Dialog>
+
+      <Dialog
+        open={oshiEditing !== null}
+        onClose={() => setOshiEditing(null)}
+        title={oshiEditing === "new" ? "推しを追加" : `${oshi.find((o) => o.id === oshiEditing)?.name ?? ""} を編集`}
+        wide
+      >
+        {oshiEditing !== null ? (
+          <OshiEditor
+            key={oshiEditing}
+            oshiId={oshiEditing === "new" ? null : oshiEditing}
+            onDone={(text) => {
+              setOshiEditing(null);
+              setMessage(text);
+            }}
+          />
         ) : null}
       </Dialog>
     </div>

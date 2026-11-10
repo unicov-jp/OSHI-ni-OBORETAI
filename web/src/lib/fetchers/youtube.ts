@@ -92,7 +92,10 @@ async function fetchYoutubeViaFeed(channelId: string): Promise<ParsedFeed> {
       {
         ...item,
         externalId: videoId,
-        url: `https://www.youtube.com/watch?v=${videoId}`,
+        // ショートはフィードのリンクが /shorts/ になっている。縦長で表示するため、その形を残す
+        url: /\/shorts\//.test(item.url)
+          ? `https://www.youtube.com/shorts/${videoId}`
+          : `https://www.youtube.com/watch?v=${videoId}`,
         thumbnailUrl: thumbnail(videoId),
       },
     ];

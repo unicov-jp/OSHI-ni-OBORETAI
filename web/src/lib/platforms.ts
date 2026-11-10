@@ -181,8 +181,13 @@ export function embedHandle(platform: Platform, handle: string): string | null {
 }
 
 export function youtubeVideoId(url: string): string | null {
-  const match = /[?&]v=([A-Za-z0-9_-]{11})(?:&|$)/.exec(url);
+  const match = /[?&]v=([A-Za-z0-9_-]{11})(?:&|$)/.exec(url) ?? /\/shorts\/([A-Za-z0-9_-]{11})(?:[/?#]|$)/.exec(url);
   return match ? match[1] : null;
+}
+
+// YouTube ショート(縦長)か
+export function isYoutubeShort(url: string): boolean {
+  return /youtube\.com\/shorts\//.test(url);
 }
 
 // メンバーカラーの候補。

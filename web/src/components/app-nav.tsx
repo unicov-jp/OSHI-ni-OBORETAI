@@ -36,10 +36,14 @@ export function TopNav({ items }: { items: NavItem[] }) {
 // スマホ: 画面下に固定するナビ。項目は等幅。
 export function BottomNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
+  // 新着(TikTok 風の黒い画面)の間は、下のナビも黒にする
+  const dark = pathname === "/app";
   return (
     <nav
       aria-label="メイン"
-      className="fixed inset-x-0 bottom-0 z-30 grid h-[calc(56px+env(safe-area-inset-bottom))] border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
+      className={`fixed inset-x-0 bottom-0 z-30 grid h-[calc(56px+env(safe-area-inset-bottom))] border-t pb-[env(safe-area-inset-bottom)] md:hidden ${
+        dark ? "border-white/10 bg-black" : "border-line bg-surface"
+      }`}
       style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
     >
       {items.map((item) => {
@@ -50,10 +54,10 @@ export function BottomNav({ items }: { items: NavItem[] }) {
             href={item.href}
             aria-current={active ? "page" : undefined}
             className={`flex flex-col items-center justify-center gap-1 text-xs font-medium ${
-              active ? "text-brand" : "text-muted"
+              dark ? (active ? "text-white" : "text-white/55") : active ? "text-brand" : "text-muted"
             }`}
           >
-            <span className={`h-1 w-6 rounded-full ${active ? "bg-brand" : "bg-transparent"}`} />
+            <span className={`h-1 w-6 rounded-full ${active ? (dark ? "bg-white" : "bg-brand") : "bg-transparent"}`} />
             <span className="clamp-1 max-w-full px-1">{item.label}</span>
           </Link>
         );

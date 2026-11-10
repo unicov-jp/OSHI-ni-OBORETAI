@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>推し活手帳</title>
+<title>推しに溺れたい</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="stylesheet" href="vendor/leaflet/leaflet-1.9.4.css">
 <meta name="theme-color" content="#FBF8F3">
@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="推し活手帳">
+<meta name="apple-mobile-web-app-title" content="推しに溺れたい">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1435,8 +1435,8 @@
 <div id="app" class="no-oshi booting">
   <div class="topbar">
     <div class="brand">
-      <span class="word mincho">推し活手帳</span>
-      <span class="sub">OSHIKATSU DIARY</span>
+      <span class="word mincho">推しに溺れたい</span>
+      <span class="sub">OSHI NI OBORETAI</span>
     </div>
     <div class="header-logo-slot">
       <button type="button" class="header-logo-btn" id="headerLogoBtn" title="お気に入りグループのロゴを設定">
@@ -2822,7 +2822,7 @@ var DrivePhotos = (function(){
             setLinked(!!j.linked);
             linkChecked = true;
             // 以前の許可のままで続けるための鍵が受け取れなかったとき（1時間だけ使える）
-            if(!j.linked) setTimeout(function(){ toast("接続を続ける設定ができませんでした。Googleアカウントの「サードパーティ製のアプリとサービス」で推し活手帳の許可を外してから、もう一度接続してください"); }, 1800);
+            if(!j.linked) setTimeout(function(){ toast("接続を続ける設定ができませんでした。Googleアカウントの「サードパーティ製のアプリとサービス」でこのアプリの許可を外してから、もう一度接続してください"); }, 1800);
             if(res) res();
           }).catch(function(e){ if(rej) rej(e); });
         },
@@ -3569,7 +3569,7 @@ function importBackupData(data){
 // バックアップの中身を確認してから、今ない記録だけを戻す
 function restoreFromBackupJson(json){
   var data = json && json.data ? json.data : json;
-  if(!data || !(data.oshis || data.live || data.cheki || data.goods)){ toast("推し活手帳のバックアップではありません"); return; }
+  if(!data || !(data.oshis || data.live || data.cheki || data.goods)){ toast("このアプリのバックアップではありません"); return; }
   var n = 0;
   ["oshis","live","cheki","goods"].forEach(function(k){ n += (data[k]||[]).length; });
   if(!confirm("バックアップの記録（"+n+"件）のうち、今ない記録だけを戻します。\n今ある記録は変更しません。よろしいですか？")) return;
@@ -4070,7 +4070,7 @@ function renderAuthGate(){
   var html = '<div class="auth-gate-page">'
     + '<div class="auth-gate-hero">'
     +   iconCluster()
-    +   '<h1 class="mincho">推し活手帳へようこそ</h1>'
+    +   '<h1 class="mincho">推しに溺れたいへようこそ</h1>'
     + '</div>'
     + '<div class="auth-card" id="authBox"></div>'
     + '<p class="legal-links">ログイン・登録すると、プライバシーポリシーに同意したものとみなします。<br><a href="privacy.html">プライバシーポリシー</a></p>'

@@ -1,7 +1,7 @@
 {
-  "name": "推し活手帳",
-  "short_name": "推し活手帳",
-  "description": "LIVE・チェキ・物販を記録する推し活手帳（OSHIKATSU DIARY）",
+  "name": "推しに溺れたい",
+  "short_name": "推しに溺れたい",
+  "description": "推しのSNS・LIVE・チェキ・物販をまとめて追いかける「推しに溺れたい」（OSHI NI OBORETAI）",
   "id": "/",
   "start_url": "/",
   "scope": "/",

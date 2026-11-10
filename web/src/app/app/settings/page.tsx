@@ -35,7 +35,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       </div>
       {banner ? <Notice tone={banner.tone}>{banner.text}</Notice> : null}
 
-      <Section title="アカウント">
+      <Section title="Account">
         <dl className="mb-4 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 text-sm">
           <dt className="text-muted">ログイン</dt>
           <dd>Google</dd>
@@ -49,7 +49,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </div>
       </Section>
 
-      <Section title="プラン">
+      <Section title="Subscription">
         <div className="space-y-4">
           <Badge tone={viewer.plan === "master" ? "warn" : viewer.plan === "paid" ? "brand" : "neutral"}>
             {PLAN_LABEL[viewer.plan]}

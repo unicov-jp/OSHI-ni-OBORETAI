@@ -104,7 +104,8 @@ export type SafeResponse = {
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 
-export async function safeFetchText(input: string): Promise<SafeResponse> {
+// truncateAt を指定すると、その大きさで読むのをやめて、そこまでの本文を返す(ページの先頭だけ要る場合)。
+export async function safeFetchText(input: string, options: { truncateAt?: number } = {}): Promise<SafeResponse> {
   let current = new URL(input);
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -147,6 +148,11 @@ export async function safeFetchText(input: string): Promise<SafeResponse> {
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
+      if (options.truncateAt && total >= options.truncateAt) {
+        chunks.push(value);
+        await reader.cancel();
+        break;
+      }
       if (total > MAX_BYTES) {
         await reader.cancel();
         throw new SafeFetchError("データが大きすぎます(2MBまで)");

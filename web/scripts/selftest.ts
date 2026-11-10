@@ -4,6 +4,7 @@ import { parseFeedXml } from "@/lib/fetchers/rss";
 import { isPublicAddress, safeFetchText } from "@/lib/fetchers/safe-fetch";
 import { embedHandle, parseAccountUrl } from "@/lib/platforms";
 import { recordsToLibrary } from "@/lib/records";
+import { channelFromPage } from "@/lib/fetchers/youtube";
 
 let failed = 0;
 function check(name: string, actual: unknown, expected: unknown) {
@@ -106,6 +107,14 @@ async function main() {
   check("javascript: は不可", pick("javascript:alert(1)"), "error");
   check("埋め込みハンドルの検証(不正)", embedHandle("x", '@a"onload=x'), null);
   check("埋め込みハンドルの検証(正常)", embedHandle("tiktok", "@some.user"), "some.user");
+
+  // --- YouTubeのチャンネルページからチャンネルIDを読む ---
+  check(
+    "チャンネルページ canonical",
+    channelFromPage('<meta property="og:title" content="うた &amp; りん"><link rel="canonical" href="https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv">'),
+    { channelId: "UCabcdefghijklmnopqrstuv", title: "うた & りん" },
+  );
+  check("チャンネルページ 見つからない", channelFromPage("<html></html>"), null);
 
   // --- 今のアプリの推しの記録の読み替え ---
   const lib = recordsToLibrary(

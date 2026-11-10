@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchFeed, type ParsedFeed, type ParsedItem } from "@/lib/fetchers/rss";
+import { safeFetchText } from "@/lib/fetchers/safe-fetch";
 
 const API = "https://www.googleapis.com/youtube/v3";
 
@@ -30,11 +31,13 @@ async function callApi(path: string, params: Record<string, string>): Promise<un
   return response.json();
 }
 
-// ハンドル(@name)からチャンネルIDとチャンネル名を引く。APIを1ユニット消費する。
+// ハンドル(@name)からチャンネルIDとチャンネル名を引く。
+// APIキーがあれば公式API(1ユニット)、なければチャンネルの公開ページの先頭から読み取る。
 export async function resolveYoutubeHandle(
   handle: string,
   admin: SupabaseClient,
 ): Promise<{ channelId: string; title: string } | null> {
+  if (!apiKey()) return resolveYoutubeHandleViaPage(handle);
   const data = (await callApi("channels", { part: "id,snippet", forHandle: `@${handle}` })) as {
     items?: { id: string; snippet?: { title?: string } }[];
   };
@@ -95,4 +98,26 @@ async function fetchYoutubeViaFeed(channelId: string): Promise<ParsedFeed> {
     ];
   });
   return { ...feed, siteUrl: `https://www.youtube.com/channel/${channelId}`, items };
+}
+
+// チャンネルページの canonical / og:url にある /channel/UC... からチャンネルIDを読む。
+export function channelFromPage(html: string): { channelId: string; title: string } | null {
+  const id =
+    /<link[^>]+rel="canonical"[^>]+href="https:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})"/.exec(html)?.[1] ??
+    /<meta[^>]+property="og:url"[^>]+content="https:\/\/www\.youtube\.com\/channel\/(UC[A-Za-z0-9_-]{22})"/.exec(html)?.[1] ??
+    /"externalId":"(UC[A-Za-z0-9_-]{22})"/.exec(html)?.[1];
+  if (!id) return null;
+  const rawTitle = /<meta[^>]+property="og:title"[^>]+content="([^"]{0,200})"/.exec(html)?.[1] ?? "";
+  const title = rawTitle
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+  return { channelId: id, title };
+}
+
+async function resolveYoutubeHandleViaPage(handle: string): Promise<{ channelId: string; title: string } | null> {
+  const page = await safeFetchText(`https://www.youtube.com/@${encodeURIComponent(handle)}`, { truncateAt: 600 * 1024 });
+  return channelFromPage(page.text);
 }

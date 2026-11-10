@@ -5,7 +5,7 @@ import { Dialog } from "@/components/dialog";
 import {
   Badge, Button, Clamp, EmptyState, inputClass, Light, Notice,
 } from "@/components/ui";
-import { addSource, deleteSource } from "@/lib/actions/sources";
+import { addSource, deleteSource, importAllSns } from "@/lib/actions/sources";
 import { atLimit, limitText } from "@/lib/plans";
 import {
   PLATFORM_EXAMPLE, PLATFORM_HOW, PLATFORM_LABEL, PLATFORM_MARK, PLATFORM_ORDER,
@@ -36,6 +36,8 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
       <div className="mt-3">
         <Notice>推しの追加・編集・削除は、今のアプリ(推し活手帳)で行ってください。ここには自動で反映されます。</Notice>
       </div>
+
+      <ImportAll oshi={oshi} sources={sources} disabled={sourceFull} />
 
       {sourceFull ? (
         <div className="mt-3">
@@ -97,15 +99,93 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
   );
 }
 
+const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
+
+// まだ取り込んでいない「今のアプリのSNS」の件数
+function pendingCount(oshi: Oshi[], sources: Source[]): number {
+  let count = 0;
+  for (const o of oshi) {
+    const registered = new Set(sources.filter((s) => s.oshi_id === o.id).map((s) => normalizeUrl(s.url)));
+    for (const sns of o.sns) {
+      if (!registered.has(normalizeUrl(sns.url))) {
+        registered.add(normalizeUrl(sns.url));
+        count++;
+      }
+    }
+  }
+  return count;
+}
+
+// 今のアプリで全員の推しに登録してあるSNSを、まとめて新着の取得先に取り込む
+function ImportAll({ oshi, sources, disabled }: { oshi: Oshi[]; sources: Source[]; disabled: boolean }) {
+  const [pending, startTransition] = useTransition();
+  const [result, setResult] = useState<{
+    tone: "ok" | "warn" | "danger";
+    text: string;
+    failed: { name: string; url: string; error: string }[];
+  } | null>(null);
+  const count = pendingCount(oshi, sources);
+  if (count === 0 && !result) return null;
+
+  const run = () => {
+    setResult(null);
+    startTransition(async () => {
+      const response = await importAllSns();
+      if (!response.ok) return setResult({ tone: "danger", text: response.error, failed: [] });
+      const { added, linked, failed, remaining } = response.data ?? { added: 0, linked: 0, failed: [], remaining: 0 };
+      const parts = [`${added + linked}件を取り込みました`];
+      if (linked > 0) parts.push(`(うち${linked}件は新着を取れないためリンクとして保存)`);
+      if (failed.length > 0) parts.push(`。${failed.length}件は取り込めませんでした`);
+      if (remaining > 0) parts.push(`。残り${remaining}件は、もう一度押すと続きから取り込みます`);
+      setResult({ tone: failed.length > 0 || remaining > 0 ? "warn" : "ok", text: parts.join(""), failed });
+    });
+  };
+
+  return (
+    <section className="mt-3 rounded-xl border border-line bg-surface p-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold">今のアプリのSNSを取り込む</p>
+          <p className="text-[13px] text-muted">
+            {count > 0
+              ? `今のアプリで推しに登録してあるSNSのうち、${count}件がまだ取り込まれていません。`
+              : "今のアプリのSNSはすべて取り込み済みです。"}
+          </p>
+        </div>
+        {count > 0 ? (
+          <Button variant="primary" className="w-[168px]" disabled={pending || disabled} onClick={run}>
+            {pending ? "取り込み中" : "まとめて取り込む"}
+          </Button>
+        ) : null}
+      </div>
+      {result ? (
+        <div className="mt-3 space-y-2">
+          <Notice tone={result.tone}>{result.text}</Notice>
+          {result.failed.length > 0 ? (
+            <ul className="space-y-1 text-[13px]">
+              {result.failed.map((f) => (
+                <li key={`${f.name}-${f.url}`} className="min-w-0">
+                  <span className="font-medium">{f.name}</span>
+                  <span className="clamp-1 block text-muted" title={f.url}>{f.url}</span>
+                  <span className="block text-danger">{f.error}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 // 今のアプリで推しに登録してあるSNS(本人・グループ)を、ボタン1つで新着の取得先に取り込む
 function SnsCandidates({ oshi, sources, disabled }: { oshi: Oshi; sources: Source[]; disabled: boolean }) {
   const [pending, startTransition] = useTransition();
   const [busyUrl, setBusyUrl] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: "ok" | "danger" | "warn"; text: string } | null>(null);
 
-  const normalize = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
-  const registered = new Set(sources.map((s) => normalize(s.url)));
-  const candidates = oshi.sns.filter((c) => !registered.has(normalize(c.url)));
+  const registered = new Set(sources.map((s) => normalizeUrl(s.url)));
+  const candidates = oshi.sns.filter((c) => !registered.has(normalizeUrl(c.url)));
   if (candidates.length === 0) return null;
 
   const add = (platform: Platform, url: string) => {

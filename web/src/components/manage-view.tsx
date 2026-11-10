@@ -168,7 +168,7 @@ function OshiList({ viewer, oshi, categories, sources }: { viewer: Viewer; oshi:
         ) : (
           <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
             {oshi.map((o) => {
-              const labels = [...o.group_ids.map((id) => categoryName(id)), categoryName(o.agency_id)].filter(Boolean).join(" / ");
+              const labels = o.group_ids.map((id) => categoryName(id)).filter(Boolean).join(" / ");
               const count = sources.filter((s) => s.oshi_id === o.id).length;
               return (
                 <li key={o.id}>
@@ -179,7 +179,7 @@ function OshiList({ viewer, oshi, categories, sources }: { viewer: Viewer; oshi:
                     <OshiAvatar oshi={o} size={44} />
                     <span className="min-w-0 flex-1">
                       <Clamp className="text-[15px] font-semibold">{o.name}</Clamp>
-                      <Clamp className="text-[13px] text-muted">{labels || "所属なし"}</Clamp>
+                      <Clamp className="text-[13px] text-muted">{labels || "グループなし"}</Clamp>
                     </span>
                     <span className="num shrink-0 text-[13px] text-muted">SNS {count}件</span>
                   </Link>

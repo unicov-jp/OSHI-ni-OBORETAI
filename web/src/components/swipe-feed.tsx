@@ -626,7 +626,7 @@ function Sheet({ title, items, onClose }: { title: string; items: SheetItem[]; o
 function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
   const items: { href: string; label: string; note: string }[] = [
     { href: `/app/manage?sns=${encodeURIComponent(oshi.id)}`, label: "SNSを登録・編集", note: "新着を取る YouTube・Blog・X・Instagram・TikTok" },
-    { href: `/app/manage?edit=${encodeURIComponent(oshi.id)}`, label: "推しを編集", note: "名前・メンバーカラー・グループ・事務所・誕生日・SNS" },
+    { href: `/app/manage?edit=${encodeURIComponent(oshi.id)}`, label: "推しを編集", note: "名前・メンバーカラー・誕生日・グループ・SNS" },
   ];
   return (
     <div className="fixed inset-0 z-[60] flex items-end bg-black/60 text-white" onClick={onClose} role="presentation">

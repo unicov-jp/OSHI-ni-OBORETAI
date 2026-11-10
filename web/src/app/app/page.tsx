@@ -43,6 +43,12 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
 
   const active = ordered.find((o) => o.id === params.tab) ?? ordered[0];
   const sources = library.sources.filter((s) => s.oshi_id === active.id);
+  // 今のアプリの登録(本人・グループ)のうち、まだ取り込んでいないSNSの数(新着の画面が裏で自動で取り込む)
+  const normalize = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
+  const pendingSns = library.oshi.reduce((total, o) => {
+    const registered = new Set(library.sources.filter((s) => s.oshi_id === o.id).map((s) => normalize(s.url)));
+    return total + new Set(o.sns.map((s) => normalize(s.url)).filter((url) => !registered.has(url))).size;
+  }, 0);
   const handleOf = (handle: string) => handle.replace(/^@/, "");
 
   // Instagram・X・TikTok は投稿1件ずつ見せるため、最新の投稿を読む(読めなければアカウントの表示)
@@ -77,6 +83,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
       tiktok={tiktok}
       items={items}
       pageSize={PAGE_SIZE}
+      pendingSns={pendingSns}
     />
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
 import { OshiAvatar } from "@/components/oshi-avatar";
@@ -15,14 +16,26 @@ import {
 } from "@/lib/platforms";
 import type { Category, Oshi, Platform, Source, Viewer } from "@/lib/types";
 
-type Props = { viewer: Viewer; oshi: Oshi[]; categories: Category[]; sources: Source[] };
+type Props = {
+  viewer: Viewer;
+  oshi: Oshi[];
+  categories: Category[];
+  sources: Source[];
+  // 新着の画面の長押しから開いたとき: そのまま開く画面(閉じたら新着に戻る)
+  initialSns?: string;
+  initialNew?: boolean;
+};
 
 // 推しの登録・編集と、推しごとのSNS・Blog(新着を取る先)の登録。
 // 推しは今のアプリ(推し活手帳)と同じ記録を読み書きするので、どちらで登録・編集しても互いに反映される。
-export function ManageView({ viewer, oshi, categories, sources }: Props) {
-  const [editingId, setEditingId] = useState<string | null>(null);
+export function ManageView({ viewer, oshi, categories, sources, initialSns, initialNew }: Props) {
+  const router = useRouter();
+  const fromFeed = Boolean(initialSns || initialNew);
+  const [editingId, setEditingId] = useState<string | null>(initialSns ?? null);
   // 推しの編集画面: null = 閉じている、"new" = 新しく登録、それ以外 = 編集する推しの id
-  const [oshiEditing, setOshiEditing] = useState<string | null>(null);
+  const [oshiEditing, setOshiEditing] = useState<string | null>(initialNew ? "new" : null);
+  // 新着の画面から開いたときは、閉じたら新着(その推し)に戻る
+  const backToFeed = (id?: string | null) => router.push(id ? `/app?tab=${encodeURIComponent(id)}` : "/app");
   const [message, setMessage] = useState<string | null>(null);
   const oshiFull = atLimit(oshi.length, viewer.maxOshi);
   const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? "";
@@ -106,7 +119,10 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
 
       <Dialog
         open={target !== undefined}
-        onClose={() => setEditingId(null)}
+        onClose={() => {
+          if (fromFeed) backToFeed(editingId);
+          setEditingId(null);
+        }}
         title={target ? `${target.name} のSNS(新着を取る先)` : ""}
         wide
       >
@@ -120,7 +136,10 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
 
       <Dialog
         open={oshiEditing !== null}
-        onClose={() => setOshiEditing(null)}
+        onClose={() => {
+          if (fromFeed) backToFeed();
+          setOshiEditing(null);
+        }}
         title={oshiEditing === "new" ? "推しを追加" : `${oshi.find((o) => o.id === oshiEditing)?.name ?? ""} を編集`}
         wide
       >
@@ -128,7 +147,8 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
           <OshiEditor
             key={oshiEditing}
             oshiId={oshiEditing === "new" ? null : oshiEditing}
-            onDone={(text) => {
+            onDone={(text, id) => {
+              if (fromFeed) return backToFeed(id);
               setOshiEditing(null);
               setMessage(text);
             }}

@@ -23,7 +23,7 @@ const blank = (): OshiEditable => ({
   groups: [],
 });
 
-export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: (message: string) => void }) {
+export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: (message: string, id?: string) => void }) {
   const [value, setValue] = useState<OshiEditable | null>(oshiId ? null : blank());
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -58,7 +58,7 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
       // 入力したSNSを、新着を取る先としても登録する(登録済みのものは重ねない)
       const imported = await importAllSns();
       const count = imported.ok && imported.data ? imported.data.added + imported.data.linked : 0;
-      onDone(`保存しました。今のアプリにも反映されます${count > 0 ? `(SNSを${count}件登録しました)` : ""}`);
+      onDone(`保存しました。今のアプリにも反映されます${count > 0 ? `(SNSを${count}件登録しました)` : ""}`, result.data?.id);
     });
   };
 

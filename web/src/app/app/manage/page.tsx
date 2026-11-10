@@ -7,7 +7,15 @@ export const metadata: Metadata = { title: "推しの登録" };
 // まとめて取り込みは外部ページの確認を伴うため、最大60秒まで待つ
 export const maxDuration = 60;
 
-export default async function ManagePage() {
-  const [viewer, library] = await Promise.all([requireViewer(), getLibrary()]);
-  return <ManageView viewer={viewer} {...library} />;
+// 新着の画面から、推しのアイコンの長押し(?sns=<推しのid>)・更新ボタンの長押し(?new=1)で開く
+export default async function ManagePage({ searchParams }: { searchParams: Promise<{ sns?: string; new?: string }> }) {
+  const [params, viewer, library] = await Promise.all([searchParams, requireViewer(), getLibrary()]);
+  return (
+    <ManageView
+      viewer={viewer}
+      {...library}
+      initialSns={params.sns && library.oshi.some((o) => o.id === params.sns) ? params.sns : undefined}
+      initialNew={params.new === "1"}
+    />
+  );
 }

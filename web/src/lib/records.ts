@@ -148,6 +148,26 @@ export function recordsToLibrary(
     };
   });
 
+  // 同じグループの推しどうしで、グループのSNSを分け合う(ある推しの記録にだけグループのSNSが入っている場合も、
+  // 同じグループの推し全員の新着に出す)。本人のSNSが未登録でも、グループのSNSがあれば取り込みの候補になる
+  const groupSns = new Map<string, Oshi["sns"]>();
+  for (const o of oshi) {
+    for (const s of o.sns) {
+      if (s.from === "本人") continue;
+      const list = groupSns.get(s.from) ?? [];
+      if (!list.some((x) => x.url === s.url)) list.push(s);
+      groupSns.set(s.from, list);
+    }
+  }
+  for (const o of oshi) {
+    for (const groupId of o.group_ids) {
+      const name = categories.get(groupId)?.name ?? "";
+      for (const s of groupSns.get(name) ?? []) {
+        if (!o.sns.some((x) => x.url === s.url)) o.sns.push(s);
+      }
+    }
+  }
+
   return {
     oshi,
     categories: [...categories.values()].sort((a, b) => a.name.localeCompare(b.name, "ja")),

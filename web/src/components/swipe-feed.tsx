@@ -9,6 +9,7 @@ import { EmbedCard, InstagramPost, XPostEmbed } from "@/components/embeds";
 import { OshiAvatar } from "@/components/oshi-avatar";
 import { formatRelative } from "@/components/ui";
 import { loadMore, markSeen } from "@/lib/actions/oshi";
+import { importAllSns } from "@/lib/actions/sources";
 import { isYoutubeShort, PLATFORM_LABEL, youtubeVideoId } from "@/lib/platforms";
 import { buzz } from "@/lib/haptic";
 import { decodeEntities, hostOf } from "@/lib/text";
@@ -32,6 +33,8 @@ type Props = {
   tiktok: Record<string, { id: string; at: string | null }[]>;
   items: TimelineItem[];
   pageSize: number;
+  // 今のアプリの登録(本人・グループ)のうち、まだ新着の取得先に取り込んでいないSNSの数
+  pendingSns: number;
 };
 
 const EMBED_PLATFORMS: Platform[] = ["x", "instagram", "tiktok"];
@@ -44,6 +47,72 @@ const VERTICAL_FRAME = {
 } as const;
 // 新着(動画・記事)何件ごとに、X・Instagram・TikTok の画面を1枚はさむか
 const EMBED_EVERY = 3;
+
+// 長押し(0.5秒)を見分ける。長押しになったら少し長めに振動させて onLongPress を呼び、そのあとのクリックは止める
+function useLongPress(onLongPress: () => void) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const fired = useRef(false);
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  return {
+    onPointerDown: (event: React.PointerEvent) => {
+      fired.current = false;
+      start.current = { x: event.clientX, y: event.clientY };
+      cancel();
+      timer.current = setTimeout(() => {
+        fired.current = true;
+        buzz(35);
+        onLongPress();
+      }, 500);
+    },
+    onPointerMove: (event: React.PointerEvent) => {
+      const s = start.current;
+      if (s && Math.hypot(event.clientX - s.x, event.clientY - s.y) > 10) cancel();
+    },
+    onPointerUp: cancel,
+    onPointerLeave: cancel,
+    onPointerCancel: cancel,
+    onContextMenu: (event: React.MouseEvent) => event.preventDefault(),
+    onClickCapture: (event: React.MouseEvent) => {
+      if (fired.current) {
+        event.preventDefault();
+        event.stopPropagation();
+        fired.current = false;
+      }
+    },
+    style: { WebkitTouchCallout: "none", userSelect: "none" } as React.CSSProperties,
+  };
+}
+
+// 推しのアイコン: タップでその推しの新着、長押しでその推しのSNSの登録
+function OshiTab({ oshi: o, on, count, tabRef }: { oshi: Oshi; on: boolean; count: number; tabRef?: React.Ref<HTMLAnchorElement> }) {
+  const router = useRouter();
+  const press = useLongPress(() => router.push(`/app/manage?sns=${encodeURIComponent(o.id)}`));
+  return (
+    <Link
+      href={`/app?tab=${encodeURIComponent(o.id)}`}
+      replace
+      ref={tabRef}
+      aria-current={on ? "page" : undefined}
+      aria-label={`${o.name}(長押しでSNSを登録)`}
+      title={o.name}
+      className={`relative flex shrink-0 snap-start items-center justify-center rounded-full ${on ? "" : "opacity-55"}`}
+      {...press}
+      style={{ ...press.style, width: "var(--slot)", height: "var(--slot)" }}
+    >
+      <OshiAvatar oshi={o} size="var(--avatar)" />
+      {on ? <span className="absolute bottom-0 h-[3px] w-5 rounded-full bg-white" aria-hidden /> : null}
+      {count > 0 ? (
+        <span className="num absolute top-0.5 right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ff2d6f] px-1 text-[10px] font-bold text-white">
+          {count > 99 ? "99+" : count}
+        </span>
+      ) : null}
+    </Link>
+  );
+}
 
 function readActivation(): boolean {
   return (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive ?? true;
@@ -78,7 +147,9 @@ type Slide =
 
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
-export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize }: Props) {
+export function SwipeFeed({
+  isAdmin, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns,
+}: Props) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [hasMore, setHasMore] = useState(initialItems.length >= pageSize);
@@ -89,6 +160,23 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
   const [refreshing, setRefreshing] = useState(false);
   const [pending, startTransition] = useTransition();
   const scroller = useRef<HTMLDivElement>(null);
+  // 更新ボタンの長押しで、推しを新しく登録する
+  const refreshPress = useLongPress(() => router.push("/app/manage?new=1"));
+
+  // 今のアプリの登録(本人・グループ)で、まだ取り込んでいないSNSがあれば、裏で自動で取り込む(このタブで1回)
+  useEffect(() => {
+    if (pendingSns === 0) return;
+    const key = "oshi-sns-auto-import-feed";
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch {
+      // 保存できない環境でもそのまま取り込む
+    }
+    void importAllSns().then((result) => {
+      if (result.ok && result.data && result.data.added + result.data.linked > 0) router.refresh();
+    });
+  }, [pendingSns, router]);
   const activeTab = useRef<HTMLAnchorElement>(null);
 
   // 推しを選び直すと画面が作り直されて上の並びが左端に戻るので、選んだ推しを真ん中あたりに戻す
@@ -289,36 +377,18 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
         {oshi.map((o) => {
           const on = o.id === active.id;
           const count = unread[o.id] ?? 0;
-          return (
-            <Link
-              key={o.id}
-              href={`/app?tab=${encodeURIComponent(o.id)}`}
-              replace
-              ref={on ? activeTab : undefined}
-              aria-current={on ? "page" : undefined}
-              aria-label={o.name}
-              title={o.name}
-              className={`relative flex shrink-0 snap-start items-center justify-center rounded-full ${on ? "" : "opacity-55"}`}
-              style={{ width: "var(--slot)", height: "var(--slot)" }}
-            >
-              <OshiAvatar oshi={o} size="var(--avatar)" />
-              {on ? <span className="absolute bottom-0 h-[3px] w-5 rounded-full bg-white" aria-hidden /> : null}
-              {count > 0 ? (
-                <span className="num absolute top-0.5 right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ff2d6f] px-1 text-[10px] font-bold text-white">
-                  {count > 99 ? "99+" : count}
-                </span>
-              ) : null}
-            </Link>
-          );
+          return <OshiTab key={o.id} oshi={o} on={on} count={count} tabRef={on ? activeTab : undefined} />;
         })}
       </nav>
             <button
         type="button"
+        {...refreshPress}
         onClick={refresh}
         disabled={refreshing}
-        aria-label="新着を取りに行く"
-        title="新着を取りに行く"
+        aria-label="新着を取りに行く(長押しで推しを新しく登録)"
+        title="新着を取りに行く(長押しで推しを新しく登録)"
         style={{
+          ...refreshPress.style,
           // 推しのアイコンはメンバーカラーの縁(左右3pxずつ)の分だけ大きく見えるので、更新ボタンもその大きさにそろえる
           width: "calc(var(--avatar) + 6px)",
           height: "calc(var(--avatar) + 6px)",

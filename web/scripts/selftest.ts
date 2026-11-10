@@ -242,6 +242,14 @@ async function main() {
     "blog https://g2.example.com G2",
   ]);
   check("YouTubeのチャンネルID", lib.oshi[1].sns.map((s) => s.url), ["https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv"]);
+  const shared = recordsToLibrary(
+    [
+      { id: "m1", data: { name: "A", groups: [{ name: "G", sns_x: "g_official" }] } },
+      { id: "m2", data: { name: "B", groups: [{ name: "G" }] } },
+    ],
+    {},
+  );
+  check("同じグループの推しにグループのSNSを分け合う", shared.oshi[1].sns.map((s) => `${s.url} ${s.from}`), ["https://x.com/g_official G"]);
   check("分類の一覧", lib.categories.map((c) => c.id).sort(), ["agency:事務所A", "group:G1", "group:G2", "group:旧グループ"]);
 
   console.log(failed === 0 ? "\nすべて成功" : `\n${failed}件 失敗`);

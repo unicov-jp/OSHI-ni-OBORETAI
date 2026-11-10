@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { EmbedCard } from "@/components/embeds";
+import { EmbedCard, InstagramPost } from "@/components/embeds";
 import { OshiAvatar } from "@/components/oshi-avatar";
 import { formatRelative } from "@/components/ui";
 import { loadMore, markSeen } from "@/lib/actions/oshi";
@@ -20,6 +20,8 @@ type Props = {
   active: Oshi;
   unread: Record<string, number>;
   sources: Source[];
+  // Instagram のアカウントごとの最新の投稿のコード(読めなかったアカウントは空)
+  instagram: Record<string, string[]>;
   items: TimelineItem[];
   pageSize: number;
 };
@@ -30,11 +32,12 @@ const EMBED_EVERY = 3;
 
 type Slide =
   | { kind: "item"; key: string; item: TimelineItem; from: string }
-  | { kind: "embed"; key: string; source: Source; from: string };
+  | { kind: "embed"; key: string; source: Source; from: string }
+  | { kind: "insta"; key: string; source: Source; from: string; code: string };
 
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
-export function SwipeFeed({ oshi, active, unread, sources, items: initialItems, pageSize }: Props) {
+export function SwipeFeed({ oshi, active, unread, sources, instagram, items: initialItems, pageSize }: Props) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [hasMore, setHasMore] = useState(initialItems.length >= pageSize);
@@ -64,9 +67,17 @@ export function SwipeFeed({ oshi, active, unread, sources, items: initialItems, 
       seen.add(item.item_id);
       cards.push({ kind: "item", key: `i-${item.item_id}`, item, from: fromOf.get(item.source_id) ?? "" });
     }
-    const embeds: Slide[] = sources
-      .filter((s) => EMBED_PLATFORMS.includes(s.platform))
-      .map((source) => ({ kind: "embed", key: `e-${source.id}`, source, from: fromOf.get(source.id) ?? "" }));
+    // Instagram は投稿1件ずつ(読めたとき)。X・TikTok と、投稿を読めなかった Instagram はアカウントの表示
+    const embeds: Slide[] = [];
+    for (const source of sources.filter((s) => EMBED_PLATFORMS.includes(s.platform))) {
+      const from = fromOf.get(source.id) ?? "";
+      const codes = source.platform === "instagram" ? (instagram[source.id] ?? []) : [];
+      if (codes.length > 0) {
+        for (const code of codes) embeds.push({ kind: "insta", key: `p-${source.id}-${code}`, source, from, code });
+      } else {
+        embeds.push({ kind: "embed", key: `e-${source.id}`, source, from });
+      }
+    }
     const result: Slide[] = [];
     let e = 0;
     cards.forEach((card, index) => {
@@ -75,7 +86,7 @@ export function SwipeFeed({ oshi, active, unread, sources, items: initialItems, 
     });
     while (e < embeds.length) result.push(embeds[e++]);
     return result;
-  }, [items, sources, fromOf]);
+  }, [items, sources, fromOf, instagram]);
 
   // 画面に出ている1枚を調べる
   useEffect(() => {
@@ -232,6 +243,8 @@ export function SwipeFeed({ oshi, active, unread, sources, items: initialItems, 
                   muted={muted}
                   onToggleSound={() => setMuted((m) => !m)}
                 />
+              ) : slide.kind === "insta" ? (
+                <InstaSlide source={slide.source} code={slide.code} from={slide.from} oshi={active} near={Math.abs(i - current) <= 1} />
               ) : (
                 <EmbedSlide source={slide.source} from={slide.from} oshi={active} live={i === current} />
               )}
@@ -456,6 +469,25 @@ function EmbedSlide({ source, from, oshi, live }: { source: Source; from: string
         title={source.handle ? `${PLATFORM_LABEL[source.platform]} ${source.handle} の最新の投稿` : undefined}
         isNew={false}
       />
+    </>
+  );
+}
+
+// Instagram の投稿1件。前後1枚まで先に読み込んでおき、スワイプしたときにすぐ見えるようにする
+function InstaSlide({ source, code, from, oshi, near }: { source: Source; code: string; from: string; oshi: Oshi; near: boolean }) {
+  const url = `https://www.instagram.com/p/${code}/`;
+  return (
+    <>
+      <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 70% 10%, ${oshi.color}88, #000 70%)` }} />
+      <div className="absolute inset-x-3 top-20 right-20 bottom-32 overflow-hidden rounded-2xl bg-white">
+        {near ? (
+          <InstagramPost code={code} title={`${oshi.name}のInstagramの投稿`} />
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm text-black/50">Instagram</div>
+        )}
+      </div>
+      <SideActions oshi={oshi} url={url} title={`${oshi.name}のInstagramの投稿`} />
+      <Info platform="Instagram" oshi={oshi} from={from} time="" title={source.handle ? `Instagram ${source.handle}` : undefined} isNew={false} />
     </>
   );
 }

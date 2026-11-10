@@ -3,6 +3,7 @@ import Link from "next/link";
 import { SwipeFeed } from "@/components/swipe-feed";
 import { EmptyState, buttonClass } from "@/components/ui";
 import { getLibrary, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
+import { instagramPostCodes } from "@/lib/fetchers/instagram";
 
 export const metadata: Metadata = { title: "新着" };
 
@@ -28,7 +29,16 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
   }
 
   const active = library.oshi.find((o) => o.id === params.tab) ?? library.oshi[0];
-  const items = await getTimeline({ oshiIds: [active.id] });
+  const sources = library.sources.filter((s) => s.oshi_id === active.id);
+  // Instagram は投稿1件ずつ見せるため、各アカウントの最新の投稿のコードを読む(読めなければアカウント表示)
+  const [items, instagram] = await Promise.all([
+    getTimeline({ oshiIds: [active.id] }),
+    Promise.all(
+      sources
+        .filter((s) => s.platform === "instagram")
+        .map(async (s) => [s.id, await instagramPostCodes(s.handle.replace(/^@/, ""))] as const),
+    ).then((pairs) => Object.fromEntries(pairs)),
+  ]);
 
   return (
     <SwipeFeed
@@ -37,7 +47,8 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
       oshi={library.oshi}
       active={active}
       unread={unread}
-      sources={library.sources.filter((s) => s.oshi_id === active.id)}
+      sources={sources}
+      instagram={instagram}
       items={items}
       pageSize={PAGE_SIZE}
     />

@@ -4,6 +4,7 @@ import { parseFeedXml } from "@/lib/fetchers/rss";
 import { isPublicAddress, safeFetchText } from "@/lib/fetchers/safe-fetch";
 import { embedHandle, parseAccountUrl } from "@/lib/platforms";
 import { recordsToLibrary } from "@/lib/records";
+import { postCodesFromEmbed } from "@/lib/fetchers/instagram";
 import { editableFrom, emptySns, mergeIntoRecord, toStoredSns } from "@/lib/oshi-record";
 import { decodeEntities, hostOf } from "@/lib/text";
 import { channelFromPage } from "@/lib/fetchers/youtube";
@@ -109,6 +110,14 @@ async function main() {
   check("javascript: は不可", pick("javascript:alert(1)"), "error");
   check("埋め込みハンドルの検証(不正)", embedHandle("x", '@a"onload=x'), null);
   check("埋め込みハンドルの検証(正常)", embedHandle("tiktok", "@some.user"), "some.user");
+
+  // --- Instagram の埋め込みページから投稿のコードを読む ---
+  check(
+    "Instagram 投稿コード",
+    postCodesFromEmbed('{"shortcode":"DAbc123xyz"} <a href="/p/DAbc123xyz/"> https:\\/\\/www.instagram.com\\/reel\\/CReel99abc\\/ <a href="/p/C2second_1/">'),
+    ["DAbc123xyz", "CReel99abc", "C2second_1"],
+  );
+  check("Instagram 投稿なし", postCodesFromEmbed("<html></html>"), []);
 
   // --- 推しの記録の読み書き(今のアプリと共通) ---
   check("SNS: URLをIDに", toStoredSns("x", "https://x.com/iON_kono_"), "iON_kono_");

@@ -9,7 +9,7 @@ import { tiktokVideos } from "@/lib/fetchers/tiktok";
 import { xPosts } from "@/lib/fetchers/x";
 import { getCalendar, getGallery } from "@/lib/memories";
 
-export const metadata: Metadata = { title: "新着" };
+export const metadata: Metadata = { title: "TOP" };
 
 type Search = Promise<{ tab?: string; view?: string }>;
 

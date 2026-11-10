@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { TimelineItem } from "@/lib/types";
 import Link from "next/link";
 import { BackToNormal } from "@/components/mode-switch";
 import { SwipeFeed, type FeedView } from "@/components/swipe-feed";
@@ -6,7 +7,7 @@ import { getFeedMode, oshiInMode } from "@/lib/feed-mode";
 import { canUseAdvanced } from "@/lib/plans";
 import { EmptyState, buttonClass } from "@/components/ui";
 import { requireViewer } from "@/lib/auth";
-import { getLatestByOshi, getLibrary, getSavedPosts, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
+import { getLatestByOshi, getLibrary, getManualPosts, getSavedPosts, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
 import { instagramPostCodes } from "@/lib/fetchers/instagram";
 import { tiktokVideos } from "@/lib/fetchers/tiktok";
 import { xPosts } from "@/lib/fetchers/x";
@@ -80,7 +81,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
   // Instagram・X・TikTok は投稿1件ずつ見せるため、最新の投稿を読む(読めなければアカウントの表示)
   // 新着・ギャラリー・カレンダーの中身をまとめて読む(左右のスワイプはサーバーを待たずにその場で切り替える)
   const social = sources;
-  const [items, instagram, x, tiktok, gallery, calendar] = await Promise.all([
+  const [items, instagram, x, tiktok, gallery, calendar, manual] = await Promise.all([
     getTimeline({ oshiIds: [active.id] }),
     Promise.all(
       social
@@ -97,7 +98,19 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     ).then((pairs) => Object.fromEntries(pairs)),
     getGallery(active.id),
     getCalendar(active.id),
+    getManualPosts(active.id),
   ]);
+  // 個別に追加した投稿(推しのメニューの「個別投稿の更新」)は、フィードの先頭に並べる
+  const pinned: TimelineItem[] = manual.map((post) => ({
+    item_id: `m-${post.id}`,
+    oshi_id: post.oshi_id,
+    source_id: "",
+    platform: post.platform,
+    title: post.title,
+    url: post.url,
+    thumbnail_url: post.thumbnail_url,
+    published_at: post.created_at,
+  }));
   // 保存した投稿(Developer だけ。反応ボタンの短押しで保存・解除する)
   const savedUrls = viewer.plan === "master" ? (await getSavedPosts()).map((p) => p.url) : [];
 
@@ -122,6 +135,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
       gallery={gallery}
       calendar={calendar}
       savedUrls={savedUrls}
+      pinned={pinned}
     />
   );
 }

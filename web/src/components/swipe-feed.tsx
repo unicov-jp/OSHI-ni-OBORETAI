@@ -17,8 +17,9 @@ import { isYoutubeShort, PLATFORM_LABEL, youtubeVideoId } from "@/lib/platforms"
 import { buzz } from "@/lib/haptic";
 import { useLongPress } from "@/lib/long-press";
 import { decodeEntities, hostOf } from "@/lib/text";
+import { addManualPost, listManualPosts, removeManualPost } from "@/lib/actions/manual-posts";
 import { toggleSavedPost } from "@/lib/actions/saved";
-import type { CalendarEntry, GalleryPhoto, Oshi, Platform, SavePostInput, Source, TimelineItem } from "@/lib/types";
+import type { CalendarEntry, GalleryPhoto, ManualPost, Oshi, Platform, SavePostInput, Source, TimelineItem } from "@/lib/types";
 
 // TikTok 風の新着。推しを1人選び、その推しと所属グループの新着(動画・記事・X・Instagram・TikTok)を
 // 1本の流れにして、上下のスワイプで1件ずつ見る。
@@ -50,6 +51,8 @@ type Props = {
   calendar: CalendarEntry[];
   // 保存した投稿のURL(Developer だけ。反応ボタンの短押しで保存・解除する)
   savedUrls: string[];
+  // 個別に追加した投稿(推しのメニューの「個別投稿の更新」)。フィードの先頭に並べる
+  pinned: TimelineItem[];
 };
 
 export type FeedView = "feed" | "gallery" | "calendar";
@@ -162,7 +165,7 @@ type Slide =
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
 export function SwipeFeed({
-  isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view: initialView, gallery, calendar, savedUrls,
+  isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view: initialView, gallery, calendar, savedUrls, pinned,
 }: Props) {
   const [saved, setSaved] = useState(() => new Set(savedUrls));
   const [view, setView] = useState<FeedView>(initialView);
@@ -328,6 +331,12 @@ export function SwipeFeed({
       }
     }
     const result: Slide[] = [];
+    // 個別に追加した投稿は先頭に(新しく追加した順)
+    for (const item of pinned) {
+      if (seen.has(item.item_id)) continue;
+      seen.add(item.item_id);
+      result.push({ kind: "item", key: `i-${item.item_id}`, item, from: "追加した投稿" });
+    }
     let e = 0;
     cards.forEach((card, index) => {
       result.push(card);
@@ -339,7 +348,7 @@ export function SwipeFeed({
       result.push({ kind: "link", key: `l-${source.id}`, source, from: fromOf.get(source.id) ?? "" });
     }
     return result;
-  }, [items, sources, fromOf, instagram, x, tiktok]);
+  }, [items, sources, fromOf, instagram, x, tiktok, pinned]);
 
   // 画面に出ている1枚を調べる
   useEffect(() => {
@@ -713,36 +722,149 @@ function Sheet({ title, items, onClose }: { title: string; items: SheetItem[]; o
 
 // 推しのメニュー(上の並びの推しのアイコン・右下の推しのアイコンの長押し)
 function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
+  const [panel, setPanel] = useState<"menu" | "posts">("menu");
   const items: { href: string; label: string }[] = [
     { href: `/app/manage?edit=${encodeURIComponent(oshi.id)}`, label: "推し情報の更新" },
     { href: "/app/manage?new=1", label: "推し情報の新規登録" },
   ];
+  const row = "flex min-h-[56px] w-full items-center px-4 py-2 text-left text-[15px] font-semibold active:bg-white/10";
   return (
     <div className="fixed inset-0 z-[60] flex items-end bg-black/60 text-white" onClick={onClose} role="presentation">
       <div
         role="dialog"
         aria-label={`${oshi.name}のメニュー`}
         onClick={(event) => event.stopPropagation()}
-        className="w-full rounded-t-3xl bg-[#111] px-4 pt-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-white shadow-2xl"
+        className="max-h-[90dvh] w-full overflow-y-auto rounded-t-3xl bg-[#111] px-4 pt-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-white shadow-2xl"
       >
         <span aria-hidden className="mx-auto mb-4 block h-1 w-10 rounded-full bg-white/25" />
         <div className="mb-3 flex items-center gap-3 px-1">
           <OshiAvatar oshi={oshi} size={44} />
           <p className="truncate text-lg font-bold">{oshi.name}</p>
         </div>
-        <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
-          {items.map((item) => (
-            <li key={item.href}>
-              <Link href={item.href} className="flex min-h-[56px] items-center px-4 py-2 text-[15px] font-semibold active:bg-white/10">
-                {item.label}
-              </Link>
+        {panel === "menu" ? (
+          <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
+            {items.map((item) => (
+              <li key={item.href}>
+                <Link href={item.href} className={row}>
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+            <li>
+              <button type="button" onClick={() => setPanel("posts")} className={row}>
+                個別投稿の更新
+              </button>
             </li>
-          ))}
-        </ul>
+          </ul>
+        ) : (
+          <ManualPosts oshi={oshi} onBack={() => setPanel("menu")} />
+        )}
         <button type="button" onClick={onClose} className="mt-3 h-12 w-full rounded-2xl bg-white/10 text-[15px] font-semibold">
           閉じる
         </button>
       </div>
+    </div>
+  );
+}
+
+// 個別投稿の更新: 過去の YouTube 動画などをURLで推しのフィードに足す・外す。足した投稿はフィードの先頭に並ぶ
+function ManualPosts({ oshi, onBack }: { oshi: Oshi; onBack: () => void }) {
+  const router = useRouter();
+  const [posts, setPosts] = useState<ManualPost[] | null>(null);
+  const [url, setUrl] = useState("");
+  const [message, setMessage] = useState<{ tone: "ok" | "danger"; text: string } | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    let alive = true;
+    void listManualPosts(oshi.id).then((result) => {
+      if (!alive) return;
+      if (result.ok) setPosts(result.data?.posts ?? []);
+      else {
+        setPosts([]);
+        setMessage({ tone: "danger", text: result.error });
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [oshi.id]);
+
+  const add = () => {
+    setMessage(null);
+    startTransition(async () => {
+      const result = await addManualPost(oshi.id, url);
+      if (!result.ok || !result.data) return setMessage({ tone: "danger", text: result.ok ? "追加できませんでした" : result.error });
+      const post = result.data.post;
+      setPosts((prev) => [post, ...(prev ?? [])]);
+      setUrl("");
+      setMessage({ tone: "ok", text: "追加しました。フィードの先頭に並びます" });
+      router.refresh();
+    });
+  };
+  const remove = (id: string) => {
+    setMessage(null);
+    startTransition(async () => {
+      const result = await removeManualPost(id);
+      if (!result.ok) return setMessage({ tone: "danger", text: result.error });
+      setPosts((prev) => (prev ?? []).filter((p) => p.id !== id));
+      router.refresh();
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 px-1">
+        <button type="button" onClick={onBack} className="text-[13px] text-white/60" aria-label="メニューに戻る">
+          ‹ 戻る
+        </button>
+        <p className="text-[15px] font-bold">個別投稿の更新</p>
+      </div>
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (url.trim() && !pending) add();
+        }}
+      >
+        <input
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          inputMode="url"
+          placeholder="YouTube の動画のURL"
+          aria-label="追加する投稿のURL"
+          className="h-11 min-w-0 flex-1 rounded-xl border border-white/15 bg-white/5 px-3 text-[15px] text-white placeholder:text-white/40"
+        />
+        <button type="submit" disabled={pending || !url.trim()} className="h-11 shrink-0 rounded-xl bg-white px-4 text-[15px] font-bold text-black disabled:opacity-40">
+          追加
+        </button>
+      </form>
+      {message ? <p className={`px-1 text-[13px] ${message.tone === "ok" ? "text-emerald-300" : "text-[#ff6b8f]"}`}>{message.text}</p> : null}
+      {posts === null ? (
+        <p className="px-1 text-[13px] text-white/50">読み込み中…</p>
+      ) : posts.length === 0 ? (
+        <p className="px-1 text-[13px] text-white/50">追加した投稿はまだありません</p>
+      ) : (
+        <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
+          {posts.map((post) => (
+            <li key={post.id} className="flex items-center gap-3 px-3 py-2">
+              {post.thumbnail_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={post.thumbnail_url} alt="" className="h-10 w-16 shrink-0 rounded-md bg-white/10 object-cover" loading="lazy" />
+              ) : null}
+              <span className="clamp-2 min-w-0 flex-1 text-[13px]">{post.title}</span>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => remove(post.id)}
+                className="h-9 shrink-0 rounded-lg bg-white/10 px-3 text-[13px] disabled:opacity-40"
+              >
+                外す
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

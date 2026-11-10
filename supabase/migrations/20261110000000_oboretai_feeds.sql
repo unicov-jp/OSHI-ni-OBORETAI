@@ -803,5 +803,27 @@ drop policy if exists oshikatsu_saved_posts_delete on public.oshikatsu_saved_pos
 create policy oshikatsu_saved_posts_delete on public.oshikatsu_saved_posts for delete to authenticated
   using (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()));
 
+-- 個別に追加した投稿(推しのメニューの「個別投稿の更新」で、過去の YouTube 動画などをURLで足す)。
+-- 推しのフィードの先頭に並ぶ。新着の整理とは別に持つので消えない
+create table if not exists public.oshikatsu_manual_posts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  oshi_id text not null check (char_length(oshi_id) between 1 and 100),
+  platform text not null check (platform in ('youtube')),
+  url text not null check (url ~ '^https://' and char_length(url) <= 500),
+  title text not null default '' check (char_length(title) <= 300),
+  thumbnail_url text check (thumbnail_url is null or (thumbnail_url ~ '^https://' and char_length(thumbnail_url) <= 1000)),
+  created_at timestamptz not null default now(),
+  unique (user_id, oshi_id, url)
+);
+create index if not exists oshikatsu_manual_posts_oshi_idx on public.oshikatsu_manual_posts (user_id, oshi_id, created_at desc);
+alter table public.oshikatsu_manual_posts enable row level security;
+revoke all on public.oshikatsu_manual_posts from anon, authenticated;
+grant select, insert, delete on public.oshikatsu_manual_posts to authenticated;
+drop policy if exists oshikatsu_manual_posts_all on public.oshikatsu_manual_posts;
+create policy oshikatsu_manual_posts_all on public.oshikatsu_manual_posts for all to authenticated
+  using (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()))
+  with check (user_id = (select auth.uid()) and (select public.oshikatsu_session_ok()));
+
 -- 追加した表・関数をすぐ使えるように、Supabase のAPIの一覧を読み直させる
 notify pgrst, 'reload schema';

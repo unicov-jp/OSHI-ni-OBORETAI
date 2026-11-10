@@ -7,7 +7,7 @@ import { DEMO } from "@/lib/env";
 import { recordsToLibrary, type OshiRecord } from "@/lib/records";
 import { createClient } from "@/lib/supabase/server";
 import type {
-  AdminFeed, AdminStats, AdminUser, AuditLog, Category, FetchLog, Oshi, Platform, SavedPost, Source, TimelineItem,
+  AdminFeed, AdminStats, AdminUser, AuditLog, Category, FetchLog, ManualPost, Oshi, Platform, SavedPost, Source, TimelineItem,
 } from "@/lib/types";
 
 export const PAGE_SIZE = 48;
@@ -210,4 +210,17 @@ export async function getSavedPosts(limit = 500): Promise<SavedPost[]> {
     .order("created_at", { ascending: false })
     .limit(limit);
   return (data ?? []) as SavedPost[];
+}
+
+// 個別に追加した投稿(推しのメニューの「個別投稿の更新」)。新しく追加した順
+export async function getManualPosts(oshiId: string): Promise<ManualPost[]> {
+  if (DEMO) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("oshikatsu_manual_posts")
+    .select("id, oshi_id, platform, url, title, thumbnail_url, created_at")
+    .eq("oshi_id", oshiId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  return (data ?? []) as ManualPost[];
 }

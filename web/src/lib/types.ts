@@ -191,3 +191,14 @@ export type SavePostInput = {
   thumbnailUrl?: string | null;
   publishedAt?: string | null;
 };
+
+// 個別に追加した投稿(推しのメニューの「個別投稿の更新」)
+export type ManualPost = {
+  id: string;
+  oshi_id: string;
+  platform: "youtube";
+  url: string;
+  title: string;
+  thumbnail_url: string | null;
+  created_at: string;
+};

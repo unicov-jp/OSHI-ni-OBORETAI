@@ -13,7 +13,8 @@ export function GoogleLoginButton() {
     setError(null);
     const { error: authError } = await createClient().auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      // ブラウザが別のGoogleアカウントにログイン済みでも、毎回どのアカウントでログインするか選べるようにする
+      options: { redirectTo: `${window.location.origin}/auth/callback`, queryParams: { prompt: "select_account" } },
     });
     if (authError) {
       setBusy(false);

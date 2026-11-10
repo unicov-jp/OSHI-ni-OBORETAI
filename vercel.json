@@ -4,5 +4,11 @@
     "deploymentEnabled": {
       "claude/*": false
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/keepalive",
+      "schedule": "0 3 * * *"
+    }
+  ]
 }

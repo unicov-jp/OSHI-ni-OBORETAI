@@ -4030,7 +4030,7 @@ function logoutButtonHtml(){
 
 async function linkGoogle(){
   if(!sb || !cloud.user) return;
-  var res = await sb.auth.linkIdentity({provider:"google", options:{redirectTo:appUrl()}});
+  var res = await sb.auth.linkIdentity({provider:"google", options:{redirectTo:appUrl(), queryParams:{prompt:"select_account"}}});
   if(res && res.error) toast(authErrorMessage(res.error));
 }
 async function unlinkGoogle(){
@@ -4133,7 +4133,8 @@ function bindAuthForm(root, mode, switchMode){
   if(googleBtn){
     googleBtn.addEventListener("click", async function(){
       googleBtn.disabled = true;
-      var res = await sb.auth.signInWithOAuth({provider:"google", options:{redirectTo:appUrl()}});
+      // ブラウザが別のGoogleアカウントにログイン済みでも、毎回どのアカウントでログインするか選べるようにする
+      var res = await sb.auth.signInWithOAuth({provider:"google", options:{redirectTo:appUrl(), queryParams:{prompt:"select_account"}}});
       if(res.error){ googleBtn.disabled = false; showMsg(authErrorMessage(res.error), "error"); }
     });
   }

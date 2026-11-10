@@ -38,7 +38,7 @@ export default async function PricingPage() {
         </Link>
         <h1 className="mt-1 text-2xl font-bold">料金</h1>
         <p className="mt-2 text-sm text-muted">
-          推し{FREE_OSHI}人までは無料です。それより多く登録するときは Subscription に切り替えます。月額は、増やした推しの人数ぶんだけ加算されます。
+          推し{FREE_OSHI}人までは無料です。それより多く登録するときは「{labels.paid}」に切り替えます。月額は、増やした推しの人数ぶんだけ加算されます。
         </p>
       </div>
 
@@ -46,32 +46,35 @@ export default async function PricingPage() {
       <section className="rounded-2xl border border-line bg-surface p-5">
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-lg font-bold">{labels.free}</h2>
-          <span className="text-xs text-muted">まずはお試しに</span>
+          <span className="num text-sm">
+            <b className="text-base">0円</b>
+          </span>
         </div>
-        <p className="num mt-2 text-2xl font-bold">0円</p>
-        <p className="num mt-1 text-sm text-muted">推し{FREE_OSHI}人まで・SNS 15件まで</p>
+        <p className="num mt-1 text-xs text-muted">推し{FREE_OSHI}人まで・SNS 15件まで</p>
       </section>
 
-      {/* Subscription: 人数ごとの月額 */}
+      {/* Subscription: 1人あたりの月額と、▼▲で人数を変えたときの月額 */}
       <section className="rounded-2xl border border-brand bg-brand/5 p-5">
         <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-lg font-bold">Subscription</h2>
-          <span className="text-xs text-muted">推しが多い人に</span>
+          <h2 className="text-lg font-bold">{labels.paid}</h2>
+          <span className="num text-sm">
+            {perOshi !== null ? (
+              <>
+                推し1人 <b className="text-base">月額{yen(perOshi)}</b>
+              </>
+            ) : (
+              "準備中"
+            )}
+          </span>
         </div>
         {perOshi !== null ? (
           <>
-            <p className="num mt-2 text-2xl font-bold">
-              推し1人あたり 月額{yen(perOshi)}
-            </p>
-            <p className="num mt-1 text-sm text-muted">
-              無料の{FREE_OSHI}人を超えた人数ぶんだけ加算します(最大{PAID_MAX_OSHI}人)
-            </p>
             <PriceSimulator perOshi={perOshi} freeOshi={FREE_OSHI} maxOshi={PAID_MAX_OSHI} />
-            <p className="num mt-3 text-xs text-muted">SNSは300件まで。推しを増やすと、その人数の月額に自動で切り替わります。</p>
+            <p className="num mt-2 text-xs text-muted">
+              {FREE_OSHI}人を超えた分だけ加算(最大{PAID_MAX_OSHI}人)・SNS 300件まで
+            </p>
           </>
-        ) : (
-          <p className="mt-2 text-2xl font-bold">準備中</p>
-        )}
+        ) : null}
       </section>
 
       {/* どちらのプランでも使えること */}

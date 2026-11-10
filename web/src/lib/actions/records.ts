@@ -73,3 +73,40 @@ export async function addLive(input: z.input<typeof liveSchema>): Promise<Action
   revalidatePath("/app");
   return { ok: true, data: { id } };
 }
+
+// LIVE の記録を変更する(イベント名・日付・開始時刻・会場・観戦方法・メモ)。ほかの項目(チケット・セトリ・写真など)はそのまま残す
+export async function updateLive(id: string, input: Omit<z.input<typeof liveSchema>, "oshiId">): Promise<ActionResult> {
+  if (DEMO) return { ok: false, error: "デモ表示では変更できません" };
+  await requireViewer();
+  if (!id || id.length > 100) return { ok: false, error: "対象が正しくありません" };
+  const parsed = liveSchema.omit({ oshiId: true }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "入力内容を確認してください" };
+  const value = parsed.data;
+
+  const supabase = await createClient();
+  const { data: row } = await supabase
+    .from("oshikatsu_records")
+    .select("data")
+    .eq("kind", "live")
+    .eq("id", id)
+    .eq("deleted", false)
+    .maybeSingle();
+  if (!row) return { ok: false, error: "LIVEの記録が見つかりません" };
+  const current = (row.data ?? {}) as Record<string, unknown>;
+  const place = current.venuePlace as { name?: unknown } | null | undefined;
+  const data = {
+    ...current,
+    date: value.date,
+    title: value.title,
+    startTime: value.startTime,
+    venue: value.venue,
+    viewing: value.viewing,
+    memo: value.memo,
+    // 会場名を変えたら、前の会場の位置は外す
+    venuePlace: place && place.name === value.venue ? place : null,
+  };
+  const { error } = await supabase.from("oshikatsu_records").update({ data }).eq("kind", "live").eq("id", id);
+  if (error) return { ok: false, error: "保存できませんでした。時間をおいてもう一度お試しください。" };
+  revalidatePath("/app");
+  return { ok: true };
+}

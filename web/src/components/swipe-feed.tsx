@@ -193,7 +193,7 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, x, items: 
     >
       {/* 上: 推しのタブ(推し単位のみ)と更新 */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-28 bg-gradient-to-b from-black/70 to-transparent" />
-      <nav aria-label="推し" className="scroll-x absolute inset-x-0 top-0 z-30 flex h-16 items-center gap-1 pr-16 pl-2">
+      <nav aria-label="推し" className="scroll-x absolute inset-x-0 top-0 z-30 flex h-16 items-center gap-2 pr-16 pl-3">
         {oshi.map((o) => {
           const on = o.id === active.id;
           const count = unread[o.id] ?? 0;
@@ -203,14 +203,14 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, x, items: 
               href={`/app?tab=${encodeURIComponent(o.id)}`}
               replace
               aria-current={on ? "page" : undefined}
-              className={`relative flex h-11 shrink-0 items-center gap-2 rounded-full px-2 pr-3 text-[14px] font-bold whitespace-nowrap ${
-                on ? "bg-white/20 text-white" : "text-white/65"
-              }`}
+              aria-label={o.name}
+              title={o.name}
+              className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${on ? "" : "opacity-55"}`}
             >
-              <OshiAvatar oshi={o} size={26} />
-              <span className="max-w-[7em] truncate">{o.name}</span>
+              <OshiAvatar oshi={o} size={on ? 40 : 34} />
+              {on ? <span className="absolute -bottom-0.5 h-[3px] w-5 rounded-full bg-white" aria-hidden /> : null}
               {count > 0 ? (
-                <span className="num flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ff2d6f] px-1 text-[10px] text-white">
+                <span className="num absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ff2d6f] px-1 text-[10px] font-bold text-white">
                   {count > 99 ? "99+" : count}
                 </span>
               ) : null}
@@ -392,20 +392,17 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
           className="absolute inset-0"
           style={{ background: `radial-gradient(120% 80% at 30% 20%, ${oshi.color}aa, #000 75%)` }}
         />
-        <div className="absolute inset-x-4 top-24 right-20 rounded-2xl bg-[#fffdf8] p-6 text-[#2b2420] shadow-2xl">
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="absolute inset-x-4 top-24 right-20 z-[6] block rounded-2xl bg-[#fffdf8] p-6 text-[#2b2420] shadow-2xl"
+        >
           <p className="truncate text-[11px] font-extrabold tracking-wide" style={{ color: oshi.color }}>
             BLOG ・ {hostOf(item.url)}
           </p>
-          <p className="mt-3 line-clamp-5 text-xl leading-8 font-black">{title}</p>
-          <a
-            href={item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-5 flex h-11 items-center justify-center rounded-xl bg-[#2b2420] text-sm font-extrabold text-white"
-          >
-            記事を開く
-          </a>
-        </div>
+          <p className="mt-3 line-clamp-6 text-xl leading-8 font-black">{title}</p>
+        </a>
         <SideActions oshi={oshi} url={item.url} title={title} />
         <Info platform="Blog" oshi={oshi} from={from} time={time} isNew={isNew} />
       </>
@@ -498,19 +495,69 @@ function EmbedSlide({ source, from, oshi, live }: { source: Source; from: string
   );
 }
 
-// Instagram の投稿1件。前後1枚まで先に読み込んでおき、スワイプしたときにすぐ見えるようにする
+// Instagram の投稿1件。写真を画面いっぱいに出す(いいね・コメント欄などは出さない)。
+// 写真のURLを読めなかったときだけ、Instagram 公式の投稿埋め込みを出す。前後1枚まで先に読み込む
 function InstaSlide({ source, code, from, oshi, near }: { source: Source; code: string; from: string; oshi: Oshi; near: boolean }) {
   const url = `https://www.instagram.com/p/${code}/`;
+  const [media, setMedia] = useState<{ image: string | null; video: boolean } | null>(null);
+  const [broken, setBroken] = useState(false);
+
+  useEffect(() => {
+    if (!near || media) return;
+    let cancelled = false;
+    fetch(`/api/instagram-media?code=${encodeURIComponent(code)}`)
+      .then((r) => (r.ok ? r.json() : { image: null, video: false }))
+      .then((m: { image: string | null; video: boolean }) => {
+        if (!cancelled) setMedia(m);
+      })
+      .catch(() => {
+        if (!cancelled) setMedia({ image: null, video: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [near, media, code]);
+
+  const image = media?.image && !broken ? media.image : null;
   return (
     <>
-      <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 70% 10%, ${oshi.color}88, #000 70%)` }} />
-      <div className="absolute inset-x-3 top-20 right-20 bottom-32 overflow-hidden rounded-2xl bg-white">
-        {near ? (
-          <InstagramPost code={code} title={`${oshi.name}のInstagramの投稿`} />
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-black/50">Instagram</div>
-        )}
-      </div>
+      {image ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={image} alt="" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-50 blur-2xl" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={image}
+            alt={`${oshi.name}のInstagramの投稿`}
+            referrerPolicy="no-referrer"
+            onError={() => setBroken(true)}
+            className="absolute inset-x-0 top-16 bottom-28 m-auto max-h-[calc(100%-11rem)] w-full object-contain"
+          />
+          {media?.video ? (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Instagramで動画を見る"
+              className="absolute top-1/2 left-1/2 z-[6] flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-2xl backdrop-blur"
+            >
+              ▶
+            </a>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 70% 10%, ${oshi.color}88, #000 70%)` }} />
+          <div className="absolute inset-x-3 top-20 right-20 bottom-32 overflow-hidden rounded-2xl bg-white">
+            {near && media ? (
+              <InstagramPost code={code} title={`${oshi.name}のInstagramの投稿`} />
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-black/50">Instagram</div>
+            )}
+          </div>
+        </>
+      )}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent" />
       <SideActions oshi={oshi} url={url} title={`${oshi.name}のInstagramの投稿`} />
       <Info platform="Instagram" oshi={oshi} from={from} time="" title={source.handle ? `Instagram ${source.handle}` : undefined} isNew={false} />
     </>

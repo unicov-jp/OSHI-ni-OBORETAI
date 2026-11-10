@@ -4,7 +4,7 @@ import { parseFeedXml } from "@/lib/fetchers/rss";
 import { isPublicAddress, safeFetchText } from "@/lib/fetchers/safe-fetch";
 import { embedHandle, parseAccountUrl } from "@/lib/platforms";
 import { recordsToLibrary } from "@/lib/records";
-import { postCodesFromEmbed } from "@/lib/fetchers/instagram";
+import { mediaFromPostEmbed, postCodesFromEmbed } from "@/lib/fetchers/instagram";
 import { postsFromSyndication } from "@/lib/fetchers/x";
 import { editableFrom, emptySns, mergeIntoRecord, toStoredSns } from "@/lib/oshi-record";
 import { decodeEntities, hostOf } from "@/lib/text";
@@ -123,6 +123,17 @@ async function main() {
     postCodesFromEmbed('"contextJSON":"{\\"shortcode\\":\\"DEsc4ped01\\",\\"url\\":\\"https:\\\\/\\\\/www.instagram.com\\\\/p\\\\/DEsc4ped02\\\\/\\"}"'),
     ["DEsc4ped01", "DEsc4ped02"],
   );
+  check(
+    "Instagram 写真のURL",
+    mediaFromPostEmbed('<img class="EmbeddedMediaImage" alt="" src="https://scontent-nrt1-1.cdninstagram.com/v/t51/abc.jpg?stp=1&amp;_nc=2">'),
+    { image: "https://scontent-nrt1-1.cdninstagram.com/v/t51/abc.jpg?stp=1&_nc=2", video: false },
+  );
+  check(
+    "Instagram 写真のURL(JSONの中)",
+    mediaFromPostEmbed('{\\"display_url\\":\\"https:\\\\/\\\\/scontent.cdninstagram.com\\\\/v\\\\/x.jpg?a=1\\\\u0026b=2\\",\\"is_video\\":true}'),
+    { image: "https://scontent.cdninstagram.com/v/x.jpg?a=1&b=2", video: true },
+  );
+  check("Instagram ほかのサイトの画像は使わない", mediaFromPostEmbed('<img class="EmbeddedMediaImage" src="https://evil.example.com/a.jpg">').image, null);
   check("Instagram 投稿なし", postCodesFromEmbed("<html></html>"), []);
 
   // --- X の投稿の番号と日時を読む ---

@@ -35,7 +35,7 @@ function loadXScript(): Promise<void> {
   });
 }
 
-function XTimeline({ handle, url }: { handle: string; url: string }) {
+function XTimeline({ handle }: { handle: string; url: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const theme = useTheme();
   // X の埋め込みは、このブラウザで X にログインしている(ログインの情報が残っている)と表示される。
@@ -77,14 +77,7 @@ function XTimeline({ handle, url }: { handle: string; url: string }) {
           X の投稿は、このブラウザで X にログインしていると表示されます。
           ログインしていない場合や、ブラウザがほかのサイトの情報を使わない設定のときは表示されません。
         </p>
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex h-10 items-center rounded-lg bg-text px-4 text-sm font-semibold text-bg"
-        >
-          ログイン中のXで見る
-        </a>
+        <p className="text-sm font-semibold">右の「開く」から、ログイン中の X で見られます。</p>
         <button
           type="button"
           onClick={() => {
@@ -189,18 +182,11 @@ export function InstagramPost({ code, title }: { code: string; title: string }) 
   );
 }
 
-function Fallback({ label, url, reason }: { label: string; url: string; reason: string }) {
+function Fallback({ reason }: { label: string; url: string; reason: string }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
       <p className="text-sm text-muted">{reason}</p>
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex h-10 items-center rounded-lg border border-line bg-surface px-4 text-sm font-semibold hover:bg-sunken"
-      >
-        {label}で開く
-      </a>
+      <p className="text-sm font-semibold">右の「開く」から見られます。</p>
     </div>
   );
 }
@@ -261,7 +247,7 @@ export function EmbedCard({
 
   return (
     <article className={`flex flex-col overflow-hidden bg-surface ${fill ? "h-full" : "rounded-xl border border-line"}`}>
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4">
+      <header className={`flex h-14 shrink-0 items-center gap-3 border-b border-line px-4 ${fill ? "hidden" : ""}`}>
         <div className="min-w-0 flex-1">
           <p className="clamp-1 text-sm font-semibold" title={oshiName}>
             {oshiName}
@@ -286,7 +272,7 @@ export function EmbedCard({
           </p>
         )}
       </div>
-      <p className="h-9 shrink-0 border-t border-line px-4 text-xs leading-9 whitespace-nowrap text-muted">
+      <p className={`h-9 shrink-0 border-t border-line px-4 text-xs leading-9 whitespace-nowrap text-muted ${fill ? "hidden" : ""}`}>
         表示されないときは「{label}で開く」から確認できます
       </p>
     </article>

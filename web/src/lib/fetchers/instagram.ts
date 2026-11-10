@@ -75,3 +75,37 @@ export async function instagramPostCodes(handle: string): Promise<string[]> {
     return [];
   }
 }
+
+// 投稿1件の埋め込みページから、写真(動画なら表紙の画像)のURLを読む。写真は保存せず、Instagram から直接表示する。
+const mediaCache = new Map<string, { image: string | null; video: boolean; at: number }>();
+
+export function mediaFromPostEmbed(html: string): { image: string | null; video: boolean } {
+  const clean = (value: string) =>
+    value
+      .replace(/\\+u0026/g, "&")
+      .replace(/\\+\//g, "/")
+      .replace(/&amp;/g, "&");
+  const image =
+    /class="EmbeddedMediaImage"[^>]*?src="([^"]+)"/.exec(html)?.[1] ??
+    /<img[^>]+class="EmbeddedMediaImage"[^>]*>/.exec(html)?.[0].match(/src="([^"]+)"/)?.[1] ??
+    /display_url\\*"\s*:\s*\\*"(https?:[^"]+?)\\*"/.exec(html)?.[1] ??
+    /<meta[^>]+property="og:image"[^>]+content="([^"]+)"/.exec(html)?.[1] ??
+    null;
+  const url = image ? clean(image) : null;
+  const safe = url && /^https:\/\/[a-z0-9.-]+\.(cdninstagram\.com|fbcdn\.net)\//i.test(url) ? url : null;
+  return { image: safe, video: /\\*"is_video\\*"\s*:\s*true|EmbedVideo|"video_url"/.test(html) };
+}
+
+export async function instagramPostMedia(code: string): Promise<{ image: string | null; video: boolean }> {
+  if (!/^[A-Za-z0-9_-]{6,20}$/.test(code)) return { image: null, video: false };
+  const hit = mediaCache.get(code);
+  if (hit && Date.now() - hit.at < TTL) return { image: hit.image, video: hit.video };
+  try {
+    const page = await safeFetchText(`https://www.instagram.com/p/${code}/embed/`, { headers: HEADERS });
+    const media = mediaFromPostEmbed(page.text);
+    mediaCache.set(code, { ...media, at: Date.now() });
+    return media;
+  } catch {
+    return { image: null, video: false };
+  }
+}

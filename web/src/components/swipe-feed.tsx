@@ -299,7 +299,7 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
               <OshiAvatar oshi={o} size="var(--avatar)" />
               {on ? <span className="absolute bottom-0 h-[3px] w-5 rounded-full bg-white" aria-hidden /> : null}
               {count > 0 ? (
-                <span className="num absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ff2d6f] px-1 text-[10px] font-bold text-white">
+                <span className="num absolute top-0.5 right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ff2d6f] px-1 text-[10px] font-bold text-white">
                   {count > 99 ? "99+" : count}
                 </span>
               ) : null}
@@ -313,7 +313,13 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
         disabled={refreshing}
         aria-label="新着を取りに行く"
         title="新着を取りに行く"
-        style={{ width: "var(--avatar)", height: "var(--avatar)", right: "calc((100vw - var(--slot) * 5) / 2 + (var(--slot) - var(--avatar)) / 2)", top: "calc(env(safe-area-inset-top) + 4px + (var(--slot) - var(--avatar)) / 2)" }}
+        style={{
+          // 推しのアイコンはメンバーカラーの縁(左右3pxずつ)の分だけ大きく見えるので、更新ボタンもその大きさにそろえる
+          width: "calc(var(--avatar) + 6px)",
+          height: "calc(var(--avatar) + 6px)",
+          right: "calc((100vw - var(--slot) * 5) / 2 + (var(--slot) - var(--avatar) - 6px) / 2)",
+          top: "calc(env(safe-area-inset-top) + 4px + (var(--slot) - var(--avatar) - 6px) / 2)",
+        }}
         className="absolute z-30 flex items-center justify-center rounded-full border border-white/25 bg-white/10 text-white shadow-[0_4px_16px_rgba(0,0,0,.4)] backdrop-blur-md transition active:scale-90 disabled:opacity-70"
       >
         <svg
@@ -551,13 +557,24 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   };
 
   // 字幕は出さない(動画の設定で字幕が自動で出るものも、読み込み後に字幕を外す)
+  // 字幕はいつもオフ(YouTube の設定で字幕が自動で出るものも)。字幕のトラックを空にしてから、字幕の機能も外す
   const hideCaptions = () => {
     const target = frame.current?.contentWindow;
     if (!target) return;
+    const command = (func: string, args: unknown[]) =>
+      target.postMessage(JSON.stringify({ event: "command", func, args }), "*");
     for (const name of ["captions", "cc"]) {
-      target.postMessage(JSON.stringify({ event: "command", func: "unloadModule", args: [name] }), "*");
+      command("setOption", [name, "track", {}]);
+      command("unloadModule", [name]);
     }
   };
+
+  // 再生が始まってから字幕が読み込まれることがあるため、画面に出ている間は最初の20秒ほど何度か外し直す
+  useEffect(() => {
+    if (!live) return;
+    const timers = [500, 1500, 3000, 5000, 8000, 12000, 20000].map((wait) => setTimeout(hideCaptions, wait));
+    return () => timers.forEach(clearTimeout);
+  }, [live]);
 
   if (!videoId) {
     // 記事(Blog): 見出しのカードを出す。本文は保存しないので、続きは元のサイトで読む
@@ -585,7 +602,7 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   const thumb = item.thumbnail_url ?? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
   const src =
     `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1` +
-    `&loop=1&playlist=${videoId}&enablejsapi=1&cc_load_policy=0&iv_load_policy=3`;
+    `&loop=1&playlist=${videoId}&enablejsapi=1&cc_load_policy=0&iv_load_policy=3&hl=ja`;
   return (
     <>
       {/* 背景: サムネイルをぼかして敷く */}
@@ -604,10 +621,7 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
                 onLoad={() => {
                   // 読み込み直後は命令を受け付けないことがあるため、少し間をおいて音の設定を送り直す
                   for (const wait of [300, 1200]) setTimeout(() => send(muted ? "mute" : "unMute"), wait);
-                  // 再生が始まってから字幕が読み込まれることがあるため、少し間をおいてもう一度外す
                   hideCaptions();
-                  setTimeout(hideCaptions, 1500);
-                  setTimeout(hideCaptions, 4000);
                 }}
                 className="absolute inset-0 h-full w-full border-0"
               />

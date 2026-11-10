@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Dialog } from "@/components/dialog";
 import { OshiAvatar } from "@/components/oshi-avatar";
@@ -32,6 +33,9 @@ export function ManageView({ viewer, oshi, categories, sources }: Props) {
     <div className="mx-auto max-w-[1000px]">
       <header className="flex min-h-[60px] flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1">
+          <Link href="/app/settings" className="text-[13px] text-muted hover:text-text">
+            ← 設定
+          </Link>
           <h1 className="text-xl leading-7 font-bold">推しの登録</h1>
           <p className="num text-[13px] text-muted">
             推し {limitText(oshi.length, viewer.maxOshi, "人")}、アカウント {limitText(sources.length, viewer.maxSources, "件")}

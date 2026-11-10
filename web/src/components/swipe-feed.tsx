@@ -39,7 +39,8 @@ export function SwipeFeed({ oshi, active, unread, sources, items: initialItems, 
   const [items, setItems] = useState(initialItems);
   const [hasMore, setHasMore] = useState(initialItems.length >= pageSize);
   const [current, setCurrent] = useState(0);
-  const [muted, setMuted] = useState(true);
+  // 音は最初からオン(実際に鳴るかは端末の音量・マナーモードの設定による)
+  const [muted, setMuted] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -317,13 +318,39 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   const short = isYoutubeShort(item.url);
   const frame = useRef<HTMLIFrameElement>(null);
 
-  // 音のオン・オフは YouTube の埋め込みに命令を送って切り替える(画面に出ている1件だけ)
+  // ブラウザは、画面を一度も触っていないうちは自動再生で音を出させない。触ったかどうかを見て案内を変える
+  const [activated, setActivated] = useState(() =>
+    typeof navigator === "undefined" ? true : (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive ?? true,
+  );
+  const send = useCallback((func: string) => {
+    frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args: [] }), "*");
+  }, []);
+
+  // 音のオン・オフは YouTube の埋め込みに命令を送って切り替える(画面に出ている1件だけ)。
+  // 自動再生を確実に始めるため音なしで読み込み、すぐに音をオンにする
   useEffect(() => {
     if (!live || !frame.current) return;
-    const send = (func: string) =>
-      frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args: [] }), "*");
     send(muted ? "mute" : "unMute");
-  }, [muted, live]);
+  }, [muted, live, send]);
+
+  const tap = () => {
+    if (!muted && !activated) {
+      // 初めて触ったとき: 音をオンにする(このタップで音を出せるようになる)
+      setActivated(true);
+      send("unMute");
+      return;
+    }
+    onToggleSound();
+  };
+
+  // 字幕は出さない(動画の設定で字幕が自動で出るものも、読み込み後に字幕を外す)
+  const hideCaptions = () => {
+    const target = frame.current?.contentWindow;
+    if (!target) return;
+    for (const name of ["captions", "cc"]) {
+      target.postMessage(JSON.stringify({ event: "command", func: "unloadModule", args: [name] }), "*");
+    }
+  };
 
   if (!videoId) {
     // 記事(Blog): 見出しのカードを出す。本文は保存しないので、続きは元のサイトで読む
@@ -356,7 +383,7 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   const thumb = item.thumbnail_url ?? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
   const src =
     `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1` +
-    `&loop=1&playlist=${videoId}&enablejsapi=1`;
+    `&loop=1&playlist=${videoId}&enablejsapi=1&cc_load_policy=0&iv_load_policy=3`;
   return (
     <>
       {/* 背景: サムネイルをぼかして敷く */}
@@ -372,6 +399,14 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
                 src={src}
                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                 referrerPolicy="strict-origin-when-cross-origin"
+                onLoad={() => {
+                  // 読み込み直後は命令を受け付けないことがあるため、少し間をおいて音の設定を送り直す
+                  for (const wait of [300, 1200]) setTimeout(() => send(muted ? "mute" : "unMute"), wait);
+                  // 再生が始まってから字幕が読み込まれることがあるため、少し間をおいてもう一度外す
+                  hideCaptions();
+                  setTimeout(hideCaptions, 1500);
+                  setTimeout(hideCaptions, 4000);
+                }}
                 className="absolute inset-0 h-full w-full border-0"
               />
             ) : (
@@ -384,13 +419,13 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
       {/* 動画の上の透明な層: 上下のスワイプを受け取り、タップで音を切り替える */}
       <button
         type="button"
-        aria-label={muted ? "音を出す" : "音を消す"}
-        onClick={onToggleSound}
+        aria-label={muted || !activated ? "音を出す" : "音を消す"}
+        onClick={tap}
         className="absolute inset-0 z-[5] cursor-pointer"
       />
       {live ? (
         <span className="pointer-events-none absolute top-20 left-4 z-10 rounded-full bg-black/55 px-3 py-1 text-xs font-bold backdrop-blur">
-          {muted ? "🔇 タップで音を出す" : "🔊 音あり"}
+          {muted ? "🔇 音なし(タップで音を出す)" : activated ? "🔊 音あり" : "🔇 タップで音を出す"}
         </span>
       ) : null}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />

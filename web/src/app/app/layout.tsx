@@ -9,7 +9,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const items: NavItem[] = [
     { href: "/app", label: "新着", exact: true },
-    { href: "/app/manage", label: "推しの登録" },
     { href: "/app/settings", label: "設定" },
   ];
   if (viewer.role === "admin") items.push({ href: "/admin", label: "管理" });

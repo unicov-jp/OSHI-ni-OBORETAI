@@ -53,6 +53,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       <h1 className="text-xl leading-7 font-bold">設定</h1>
       {banner ? <Notice tone={banner.tone}>{banner.text}</Notice> : null}
 
+      <Section title="推しの登録" description="推しの追加・編集と、新着を取るSNSの登録。今のアプリ(推し活手帳)と共通です。">
+        <Link href="/app/manage" className={buttonClass("primary")}>
+          推しの登録を開く
+        </Link>
+      </Section>
+
       <Section title="表示" description="背景の明るさを切り替えます。選んだ設定はこの端末に保存されます。">
         <ThemeSwitch />
       </Section>

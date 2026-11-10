@@ -696,15 +696,18 @@ function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
 function SideActions({ oshi, url, title, platform, reactions }: {
   oshi: Oshi; url: string; title: string; platform: string; reactions?: SheetItem[];
 }) {
-  const { muted, toggleMute, isAdmin } = useContext(Controls);
+  const { muted, toggleMute, isAdmin, activated } = useContext(Controls);
   const router = useRouter();
   const [menu, setMenu] = useState(false);
   // 右下の推しのアイコンを長押し: その推しのメニュー(SNSの登録・推しの編集など)
   const avatarPress = useLongPress(() => setMenu(true));
   // 設定(管理)ボタンを長押し: 推しを新しく登録
   const newPress = useLongPress(() => router.push("/app/manage?new=1"));
-  // 音の状態はボタンの色で示す: 音あり=白っぽい / ミュート中=ピンク
-  const soundTone = muted ? "bg-[#ff2d6f] text-white" : "bg-white/15";
+  // 音の状態はボタンの色で示す: 音あり=白っぽい / ミュート中=ピンク。
+  // 起動直後(まだ画面を触っていない)はブラウザの決まりで音を出せないので、ピンクで点滅させ「タップで音」と知らせる
+  const waiting = !muted && !activated;
+  const silent = muted || waiting;
+  const soundTone = silent ? `bg-[#ff2d6f] text-white${waiting ? " animate-pulse" : ""}` : "bg-white/15";
   const [sheet, setSheet] = useState<"share" | "react" | null>(null);
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -757,13 +760,13 @@ function SideActions({ oshi, url, title, platform, reactions }: {
         type="button"
         onClick={toggleMute}
         className={item}
-        aria-pressed={muted}
-        aria-label={muted ? "ミュート中(押すと音が出ます)" : "ミュートする"}
+        aria-pressed={silent}
+        aria-label={waiting ? "音なしで再生中(タップで音が出ます)" : muted ? "ミュート中(押すと音が出ます)" : "ミュートする"}
       >
         <span className={`flex h-11 w-11 items-center justify-center rounded-full backdrop-blur ${soundTone}`}>
-          <Icon d={muted ? ICON.muted : ICON.sound} />
+          <Icon d={silent ? ICON.muted : ICON.sound} />
         </span>
-        {muted ? "ミュート中" : "音あり"}
+        {waiting ? "タップで音" : muted ? "ミュート中" : "音あり"}
       </button>
       {/* マスターは「管理」(設定も管理の中から開ける)、それ以外は「設定」 */}
       {isAdmin ? (

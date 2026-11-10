@@ -3,7 +3,7 @@ import Link from "next/link";
 import { PriceSimulator } from "@/components/price-simulator";
 import { buttonClass } from "@/components/ui";
 import { getPlanLabels } from "@/lib/plan-names";
-import { FREE_OSHI, getPerOshiPrice, PAID_MAX_OSHI, yen } from "@/lib/pricing";
+import { FREE_OSHI, getPerOshiPrice, PAID_MAX_OSHI } from "@/lib/pricing";
 
 export const metadata: Metadata = { title: "料金" };
 // 料金は管理画面で変えるので、開くたびに読み直す
@@ -57,21 +57,13 @@ export default async function PricingPage() {
       <section className="rounded-2xl border border-brand bg-brand/5 p-5">
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-lg font-bold">{labels.paid}</h2>
-          <span className="num text-sm">
-            {perOshi !== null ? (
-              <>
-                推し1人 <b className="text-base">月額{yen(perOshi)}</b>
-              </>
-            ) : (
-              "準備中"
-            )}
-          </span>
+          {perOshi === null ? <span className="text-sm">準備中</span> : null}
         </div>
         {perOshi !== null ? (
           <>
             <PriceSimulator perOshi={perOshi} freeOshi={FREE_OSHI} maxOshi={PAID_MAX_OSHI} />
             <p className="num mt-2 text-xs text-muted">
-              {FREE_OSHI}人を超えた分だけ加算(最大{PAID_MAX_OSHI}人)・SNS 300件まで
+              推し{PAID_MAX_OSHI}人まで・SNS 300件まで
             </p>
           </>
         ) : null}

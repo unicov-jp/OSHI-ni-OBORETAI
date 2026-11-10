@@ -8,6 +8,7 @@ import { DEMO } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { editableFrom, mergeIntoRecord, SNS_KEYS, type OshiEditable, type SnsKey } from "@/lib/oshi-record";
 import { canUseAdvanced } from "@/lib/plans";
+import { parseBgm } from "@/lib/platforms";
 import type { ActionResult, Platform, TimelineItem } from "@/lib/types";
 
 // 推しの id は今のアプリの記録(oshikatsu_records)の id。uuid とは限らない。
@@ -29,6 +30,7 @@ const editSchema = z.object({
   person: sns,
   groups: z.array(z.object({ id: z.string().max(100).optional(), name: z.string().max(40, "グループ名は40文字までです"), sns })).max(10),
   sensitive: z.boolean().default(false),
+  bgm: z.string().trim().max(500).default(""),
 });
 
 // 編集画面に出す値(写真やギャラリーなど、ここで触らない項目は返さない)
@@ -54,6 +56,9 @@ export async function saveOshiRecord(input: OshiEditable): Promise<ActionResult<
   const parsed = editSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "入力内容を確認してください" };
   const value = parsed.data as OshiEditable;
+  if (value.bgm && !parseBgm(value.bgm)) {
+    return { ok: false, error: "BGM は YouTube の動画か再生リストのURLを入力してください" };
+  }
 
   const supabase = await createClient();
   const { data: rows, error: listError } = await supabase

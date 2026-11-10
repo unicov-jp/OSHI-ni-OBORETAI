@@ -103,7 +103,7 @@ function PhotoSlide({ photo, eager }: { photo: GalleryPhoto; eager: boolean }) {
         </>
       )}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/70 to-transparent" />
-      <div className="absolute bottom-[calc(2rem+env(safe-area-inset-bottom))] left-4 max-w-[calc(100%-6rem)] [text-shadow:0_1px_3px_rgba(0,0,0,.6)]">
+      <div className="absolute bottom-[calc(2rem+env(safe-area-inset-bottom)+var(--bgm-h,0px))] left-4 max-w-[calc(100%-6rem)] [text-shadow:0_1px_3px_rgba(0,0,0,.6)]">
         <span className="mb-2 inline-block rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-bold">
           {photo.kind === "cheki" ? "チェキ" : "ギャラリー"}
         </span>
@@ -353,7 +353,7 @@ export function CalendarBody({ oshi, entries, onShowGallery }: { oshi: Oshi; ent
   const addButton = "flex h-9 items-center rounded-full bg-white/15 px-3 text-[13px] font-bold active:bg-white/25";
 
   return (
-    <div className="flex h-full flex-col pt-[calc(var(--bar)+0.5rem)] pb-[env(safe-area-inset-bottom)]">
+    <div className="flex h-full flex-col pt-[calc(var(--bar)+0.5rem)] pb-[calc(env(safe-area-inset-bottom)+var(--bgm-h,0px))]">
       {/* カレンダー(位置は固定。下の記録だけが動く) */}
       <div className="mx-auto w-full max-w-[520px] shrink-0 px-3">
         <div className="mb-1 flex items-center justify-between">

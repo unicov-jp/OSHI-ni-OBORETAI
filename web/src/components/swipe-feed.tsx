@@ -13,7 +13,7 @@ import { formatRelative } from "@/components/ui";
 import { loadMore, markSeen } from "@/lib/actions/oshi";
 import { toggleFeedMode } from "@/lib/actions/mode";
 import { importAllSns } from "@/lib/actions/sources";
-import { isYoutubeShort, PLATFORM_LABEL, youtubeVideoId } from "@/lib/platforms";
+import { bgmEmbedUrl, isYoutubeShort, parseBgm, PLATFORM_LABEL, youtubeVideoId, type Bgm } from "@/lib/platforms";
 import { buzz } from "@/lib/haptic";
 import { useLongPress } from "@/lib/long-press";
 import { decodeEntities, hostOf } from "@/lib/text";
@@ -168,6 +168,25 @@ export function SwipeFeed({
   isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view: initialView, gallery, calendar, savedUrls, pinned,
 }: Props) {
   const [saved, setSaved] = useState(() => new Set(savedUrls));
+  // 推しの BGM(ギャラリー・カレンダーで流す)。たたんだかどうかは端末に覚える(たたむと止まる)
+  const bgm = useMemo(() => (active.bgm ? parseBgm(active.bgm) : null), [active.bgm]);
+  const [bgmOpen, setBgmOpen] = useState(() => {
+    try {
+      return typeof window === "undefined" || window.localStorage.getItem("oshi-bgm-closed") !== "1";
+    } catch {
+      return true;
+    }
+  });
+  const toggleBgm = () => {
+    setBgmOpen((open) => {
+      try {
+        window.localStorage.setItem("oshi-bgm-closed", open ? "1" : "0");
+      } catch {
+        // 覚えられない環境でもそのまま切り替える
+      }
+      return !open;
+    });
+  };
   const [view, setView] = useState<FeedView>(initialView);
   // 切り替えた向き(画面を横から滑り込ませる向き)
   const [enter, setEnter] = useState<"left" | "right" | null>(null);
@@ -557,7 +576,11 @@ export function SwipeFeed({
         <div
           key={view}
           className="absolute inset-0 z-10 bg-black"
-          style={enter ? { animation: `view-enter-${enter} 180ms ease-out` } : undefined}
+          style={{
+            ...(enter ? { animation: `view-enter-${enter} 180ms ease-out` } : {}),
+            // BGM のプレーヤーの高さ。写真の説明やカレンダーの一覧を、その分だけ上に逃がす
+            ["--bgm-h" as string]: bgm ? (bgmOpen ? "248px" : "52px") : "0px",
+          }}
         >
           {view === "gallery" ? (
             <GalleryBody key={`g-${active.id}`} oshi={active} photos={gallery} />
@@ -566,6 +589,8 @@ export function SwipeFeed({
           )}
         </div>
       ) : null}
+      {/* BGM: ギャラリー・カレンダーの間だけ左下で流す(左右の切り替えでは途切れない)。新着に戻ると止まる */}
+      {view !== "feed" && bgm ? <BgmPlayer key={`bgm-${active.id}`} bgm={bgm} open={bgmOpen} onToggle={toggleBgm} /> : null}
 
       <div
         className={`absolute inset-0 ${view === "feed" ? "" : "invisible"}`}
@@ -717,6 +742,43 @@ function Sheet({ title, items, onClose }: { title: string; items: SheetItem[]; o
       </div>
     </div>,
     document.body,
+  );
+}
+
+// BGM のプレーヤー(左下)。YouTube の決まりで、再生中はプレーヤーを 200×200 以上で見えるように置く。
+// たたむとプレーヤーを外して止め、「♪ BGM」の小さなボタンだけ残す。押すと開いて再生する
+function BgmPlayer({ bgm, open, onToggle }: { bgm: Bgm; open: boolean; onToggle: () => void }) {
+  return (
+    <div className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] left-3 z-20 text-white">
+      {open ? (
+        <div className="w-[200px] overflow-hidden rounded-2xl bg-black/80 shadow-2xl ring-1 ring-white/15 backdrop-blur">
+          <div className="flex h-9 items-center justify-between pr-1 pl-3 text-[12px] font-bold">
+            <span>♪ BGM</span>
+            <button type="button" onClick={onToggle} className="h-8 rounded-full px-3 text-white/80 active:bg-white/10" aria-label="BGM をたたんで止める">
+              たたむ
+            </button>
+          </div>
+          <iframe
+            src={bgmEmbedUrl(bgm)}
+            title="BGM"
+            width={200}
+            height={200}
+            className="block h-[200px] w-[200px] bg-black"
+            allow="autoplay; encrypted-media; picture-in-picture"
+            referrerPolicy="strict-origin-when-cross-origin"
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex h-10 items-center gap-1 rounded-full bg-black/70 px-4 text-[13px] font-bold shadow-xl ring-1 ring-white/15 backdrop-blur"
+          aria-label="BGM を開いて再生する"
+        >
+          ♪ BGM
+        </button>
+      )}
+    </div>
   );
 }
 

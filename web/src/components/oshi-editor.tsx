@@ -25,6 +25,7 @@ const blank = (): OshiEditable => ({
   person: emptySns(),
   groups: [],
   sensitive: false,
+  bgm: "",
 });
 
 // section: 推しの画面のタブごとに出す部分(all=新しく登録するときの全部、profile=写真・名前・色・誕生日、
@@ -150,6 +151,16 @@ export function OshiEditor({ oshiId, onDone, section = "all", canSensitive = fal
             </select>
           </div>
         </fieldset>
+        <Field label="BGM(YouTube)" hint="ギャラリー・カレンダーを開いている間に流します。YouTube の動画か再生リストのURL">
+          <input
+            className={inputClass}
+            value={value.bgm}
+            maxLength={500}
+            inputMode="url"
+            onChange={(e) => set({ bgm: e.target.value })}
+            placeholder="https://www.youtube.com/watch?v=…"
+          />
+        </Field>
         {canSensitive ? (
           <SettingSwitch
             title="Sensitive"

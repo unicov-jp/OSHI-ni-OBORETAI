@@ -29,6 +29,8 @@ export type Oshi = {
   sns: { platform: Platform; url: string; from: string }[];
   // Sensitive として登録した推し(Sensitive プランで切り替えて見る)
   sensitive: boolean;
+  // ギャラリー・カレンダーで流す曲(YouTube の動画か再生リストのURL)。未登録なら null
+  bgm?: string | null;
 };
 
 export type Source = {

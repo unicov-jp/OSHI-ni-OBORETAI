@@ -1,4 +1,5 @@
 import type { Category, Oshi, Platform } from "@/lib/types";
+import { parseBgm } from "@/lib/platforms";
 
 // 今のアプリ(推し活手帳 / index.html)が oshikatsu_records に保存している推しの中身を、
 // 新着の画面で使う形に読み替える。推しの登録・編集は今のアプリ側で行う(P3で移す)。
@@ -157,6 +158,7 @@ export function recordsToLibrary(
       photo: photoVersion(data.photo),
       sns,
       sensitive: data.sensitive === true,
+      bgm: typeof data.bgm === "string" && parseBgm(data.bgm) ? data.bgm : null,
     };
   });
 

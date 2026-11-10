@@ -260,3 +260,39 @@ export const MEMBER_COLORS: { name: string; value: string }[] = [
   { name: "白", value: "#E9EEF2" },
   { name: "黒", value: "#2B3640" },
 ];
+
+// BGM(推しごとに登録する YouTube の動画・再生リスト)。URLを読み取り、保存する形(正規のURL)と埋め込み用の値を返す
+export type Bgm = { kind: "video" | "playlist"; id: string; url: string };
+export function parseBgm(input: string): Bgm | null {
+  let raw = input.trim();
+  if (!raw || raw.length > 500) return null;
+  if (!/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase().replace(/^(www|m|music)\./, "");
+  const parts = url.pathname.split("/").filter(Boolean);
+  const video = (id: string | null | undefined): Bgm | null =>
+    id && /^[A-Za-z0-9_-]{11}$/.test(id) ? { kind: "video", id, url: `https://www.youtube.com/watch?v=${id}` } : null;
+  const list = url.searchParams.get("list");
+  if (host === "youtu.be") return video(parts[0]);
+  if (host !== "youtube.com") return null;
+  // 再生リスト(動画のURLに list= が付いているときも、再生リストとして流す)
+  if (list && /^[A-Za-z0-9_-]{10,64}$/.test(list)) {
+    return { kind: "playlist", id: list, url: `https://www.youtube.com/playlist?list=${list}` };
+  }
+  if (parts[0] === "watch") return video(url.searchParams.get("v"));
+  if (parts[0] === "shorts" || parts[0] === "live" || parts[0] === "embed") return video(parts[1]);
+  return null;
+}
+
+// BGM の埋め込みプレーヤーのURL(自動で再生し、終わったら繰り返す)
+export function bgmEmbedUrl(bgm: Bgm): string {
+  const common = "autoplay=1&playsinline=1&loop=1&rel=0&modestbranding=1";
+  return bgm.kind === "playlist"
+    ? `https://www.youtube-nocookie.com/embed/videoseries?list=${bgm.id}&${common}`
+    : `https://www.youtube-nocookie.com/embed/${bgm.id}?playlist=${bgm.id}&${common}`;
+}

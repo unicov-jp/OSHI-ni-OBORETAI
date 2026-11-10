@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: "利用者" };
 // スマホではカード、広い画面では表で見せる
 
 function planTone(plan: AdminUser["plan"]) {
-  return plan === "master" ? "warn" : plan === "paid" ? "brand" : "neutral";
+  return plan === "master" ? "warn" : plan === "paid" || plan === "advanced" ? "brand" : "neutral";
 }
 
 // 決済状況と、次の更新日(解約済みなら利用できる最終日)

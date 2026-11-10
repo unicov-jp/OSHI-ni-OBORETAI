@@ -11,6 +11,7 @@ import { CalendarBody, GalleryBody } from "@/components/memories";
 import { OshiAvatar } from "@/components/oshi-avatar";
 import { formatRelative } from "@/components/ui";
 import { loadMore, markSeen } from "@/lib/actions/oshi";
+import { toggleFeedMode } from "@/lib/actions/mode";
 import { importAllSns } from "@/lib/actions/sources";
 import { isYoutubeShort, PLATFORM_LABEL, youtubeVideoId } from "@/lib/platforms";
 import { buzz } from "@/lib/haptic";
@@ -25,6 +26,9 @@ import type { CalendarEntry, GalleryPhoto, Oshi, Platform, Source, TimelineItem 
 
 type Props = {
   isAdmin: boolean;
+  // 通常 / Sensitive のどちらの推しを見ているか。canSensitive: 切り替えられるプランか
+  mode: "normal" | "sensitive";
+  canSensitive: boolean;
   oshi: Oshi[];
   active: Oshi;
   unread: Record<string, number>;
@@ -54,6 +58,8 @@ function tabHref(id: string, view: FeedView): string {
 }
 
 const EMBED_PLATFORMS: Platform[] = ["x", "instagram", "tiktok"];
+// 中身を読み込めない(読み込まない)サービス: 推しのページへ移るカードを1枚はさむ
+const LINK_PLATFORMS: Platform[] = ["threads", "fantia", "myfans", "xfans", "fanza"];
 
 // 縦長の動画(ショート・TikTok)の枠。画面に収まる中でいちばん大きく出す(見切れないよう、はみ出させない)
 const VERTICAL_FRAME = {
@@ -69,15 +75,17 @@ function OshiTab({ oshi: o, view, on, count, busy, onRefresh, onSelect, tabRef }
   oshi: Oshi; view: FeedView; on: boolean; count: number; busy: boolean; onRefresh?: () => void; onSelect: () => void;
   tabRef?: React.Ref<HTMLAnchorElement>;
 }) {
-  const router = useRouter();
-  const press = useLongPress(() => router.push(`/app/manage?sns=${encodeURIComponent(o.id)}`));
+  // 長押し: その推しのメニュー(推し情報の更新・新規登録)。右下の推しのアイコンと同じもの
+  const [menu, setMenu] = useState(false);
+  const press = useLongPress(() => setMenu(true));
   return (
+    <>
     <Link
       href={tabHref(o.id, view)}
       replace
       ref={tabRef}
       aria-current={on ? "page" : undefined}
-      aria-label={`${o.name}(タップで新着を取りに行く・長押しでSNSを登録)`}
+      aria-label={`${o.name}(タップで新着を取りに行く・長押しでメニュー)`}
       title={o.name}
       className={`relative flex shrink-0 snap-start items-center justify-center rounded-full ${on ? "" : "opacity-55"}`}
       {...press}
@@ -104,6 +112,8 @@ function OshiTab({ oshi: o, view, on, count, busy, onRefresh, onSelect, tabRef }
         </span>
       ) : null}
     </Link>
+    {menu ? createPortal(<OshiMenu oshi={o} onClose={() => setMenu(false)} />, document.body) : null}
+    </>
   );
 }
 
@@ -123,12 +133,15 @@ function subscribeActivation(notify: () => void): () => void {
 // activated: 画面をもう触ったか。ブラウザは、一度も触っていないうちは自動再生で音を出させない
 const Controls = createContext<{
   muted: boolean; toggleMute: () => boolean; activated: boolean; activate: () => void; isAdmin: boolean;
+  mode: "normal" | "sensitive"; canSensitive: boolean;
 }>({
   muted: false,
   toggleMute: () => false,
   activated: true,
   activate: () => {},
   isAdmin: false,
+  mode: "normal",
+  canSensitive: false,
 });
 
 type Slide =
@@ -136,12 +149,13 @@ type Slide =
   | { kind: "embed"; key: string; source: Source; from: string }
   | { kind: "insta"; key: string; source: Source; from: string; code: string }
   | { kind: "tweet"; key: string; source: Source; from: string; id: string; at: string }
-  | { kind: "tiktok"; key: string; source: Source; from: string; id: string; at: string | null };
+  | { kind: "tiktok"; key: string; source: Source; from: string; id: string; at: string | null }
+  | { kind: "link"; key: string; source: Source; from: string };
 
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
 export function SwipeFeed({
-  isAdmin, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view: initialView, gallery, calendar,
+  isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view: initialView, gallery, calendar,
 }: Props) {
   const [view, setView] = useState<FeedView>(initialView);
   // 切り替えた向き(画面を横から滑り込ませる向き)
@@ -312,6 +326,10 @@ export function SwipeFeed({
       if ((index + 1) % EMBED_EVERY === 0 && e < embeds.length) result.push(embeds[e++]);
     });
     while (e < embeds.length) result.push(embeds[e++]);
+    // Threads・Fantia・myfans・xfans・FANZA は、推しのページへ移るカードとして最後に並べる
+    for (const source of sources.filter((s) => LINK_PLATFORMS.includes(s.platform))) {
+      result.push({ kind: "link", key: `l-${source.id}`, source, from: fromOf.get(source.id) ?? "" });
+    }
     return result;
   }, [items, sources, fromOf, instagram, x, tiktok]);
 
@@ -422,8 +440,10 @@ export function SwipeFeed({
       activated,
       activate: () => setActivated(true),
       isAdmin,
+      mode,
+      canSensitive,
     }),
-    [muted, activated, isAdmin],
+    [muted, activated, isAdmin, mode, canSensitive],
   );
 
   return (
@@ -569,6 +589,8 @@ export function SwipeFeed({
                   near={Math.abs(i - current) <= 1}
                   live={i === current && view === "feed"}
                 />
+              ) : slide.kind === "link" ? (
+                <LinkSlide source={slide.source} from={slide.from} oshi={active} />
               ) : slide.kind === "insta" ? (
                 <InstaSlide source={slide.source} code={slide.code} from={slide.from} oshi={active} near={Math.abs(i - current) <= 1} />
               ) : (
@@ -668,11 +690,11 @@ function Sheet({ title, items, onClose }: { title: string; items: SheetItem[]; o
   );
 }
 
-// 推しのメニュー(右下の推しのアイコンの長押し)。今のアプリ(推し活手帳)の機能は、ここに順に集めていく
+// 推しのメニュー(上の並びの推しのアイコン・右下の推しのアイコンの長押し)
 function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
-  const items: { href: string; label: string; note: string }[] = [
-    { href: `/app/manage?sns=${encodeURIComponent(oshi.id)}`, label: "SNSを登録・編集", note: "新着を取る YouTube・Blog・X・Instagram・TikTok" },
-    { href: `/app/manage?edit=${encodeURIComponent(oshi.id)}`, label: "推しを編集", note: "名前・メンバーカラー・誕生日・グループ・SNS" },
+  const items: { href: string; label: string }[] = [
+    { href: `/app/manage?edit=${encodeURIComponent(oshi.id)}`, label: "推し情報の更新" },
+    { href: "/app/manage?new=1", label: "推し情報の新規登録" },
   ];
   return (
     <div className="fixed inset-0 z-[60] flex items-end bg-black/60 text-white" onClick={onClose} role="presentation">
@@ -690,14 +712,12 @@ function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
         <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
           {items.map((item) => (
             <li key={item.href}>
-              <Link href={item.href} className="flex min-h-[60px] flex-col justify-center px-4 py-2 active:bg-white/10">
-                <span className="text-[15px] font-semibold">{item.label}</span>
-                <span className="truncate text-xs text-white/55">{item.note}</span>
+              <Link href={item.href} className="flex min-h-[56px] items-center px-4 py-2 text-[15px] font-semibold active:bg-white/10">
+                {item.label}
               </Link>
             </li>
           ))}
         </ul>
-        <p className="mt-3 px-1 text-xs text-white/45">カレンダー(LIVE・チェキ)は右へ、ギャラリーは左へスワイプで開けます。</p>
         <button type="button" onClick={onClose} className="mt-3 h-12 w-full rounded-2xl bg-white/10 text-[15px] font-semibold">
           閉じる
         </button>
@@ -714,10 +734,26 @@ function SideActions({ oshi, url, title, platform, reactions }: {
   const { muted, toggleMute, isAdmin, activated } = useContext(Controls);
   const router = useRouter();
   const [menu, setMenu] = useState(false);
-  // 右下の推しのアイコンを長押し: その推しのメニュー(SNSの登録・推しの編集など)
+  // 右下の推しのアイコンを長押し: その推しのメニュー(推し情報の更新・新規登録)
   const avatarPress = useLongPress(() => setMenu(true));
-  // 設定(管理)ボタンを長押し: 推しを新しく登録
-  const newPress = useLongPress(() => router.push("/app/manage?new=1"));
+  // 設定(管理)ボタンを長押し: 通常 ⇔ Sensitive の推しを切り替える(Sensitive プランだけ)
+  const { mode, canSensitive } = useContext(Controls);
+  const [modeNote, setModeNote] = useState<string | null>(null);
+  const newPress = useLongPress(() => {
+    if (!canSensitive) {
+      setModeNote("Sensitive プランで使えます");
+      setTimeout(() => setModeNote(null), 2000);
+      return;
+    }
+    void toggleFeedMode().then((result) => {
+      if (!result.ok || !result.data) return;
+      setModeNote(result.data.mode === "sensitive" ? "Sensitive に切り替えました" : "通常に切り替えました");
+      setTimeout(() => setModeNote(null), 2000);
+      // 切り替えた一覧の最初の推しから見せる
+      router.replace("/app");
+      router.refresh();
+    });
+  });
   // 音の状態はボタンの色で示す: 音あり=白っぽい / ミュート中=ピンク。
   // 起動直後(まだ画面を触っていない)はブラウザの決まりで音を出せないので、ピンクで点滅させ「タップで音」と知らせる
   const waiting = !muted && !activated;
@@ -783,17 +819,25 @@ function SideActions({ oshi, url, title, platform, reactions }: {
         </span>
         {waiting ? "タップで音" : muted ? "ミュート中" : "音あり"}
       </button>
-      {/* マスターは「管理」(設定も管理の中から開ける)、それ以外は「設定」 */}
+      {modeNote
+        ? createPortal(
+            <p className="fixed top-1/2 left-1/2 z-[70] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white px-5 py-2.5 text-sm font-bold whitespace-nowrap text-black shadow-xl">
+              {modeNote}
+            </p>,
+            document.body,
+          )
+        : null}
+      {/* マスターは「管理」(設定も管理の中から開ける)、それ以外は「設定」。Sensitive を見ているときはピンク */}
       {isAdmin ? (
-        <Link href="/admin" className={item} aria-label="管理(長押しで推しを新しく登録)" {...newPress}>
-          <span className={round}>
+        <Link href="/admin" className={item} aria-label="管理(長押しで通常とSensitiveを切り替え)" {...newPress}>
+          <span className={`${round} ${mode === "sensitive" ? "!bg-[#ff2d6f]" : ""}`}>
             <Icon d={ICON.admin} />
           </span>
           管理
         </Link>
       ) : (
-        <Link href="/app/settings" className={item} aria-label="設定(長押しで推しを新しく登録)" {...newPress}>
-          <span className={round}>
+        <Link href="/app/settings" className={item} aria-label="設定(長押しで通常とSensitiveを切り替え)" {...newPress}>
+          <span className={`${round} ${mode === "sensitive" ? "!bg-[#ff2d6f]" : ""}`}>
             <Icon d={ICON.settings} />
           </span>
           設定
@@ -1030,6 +1074,31 @@ function EmbedSlide({ source, from, oshi, live }: { source: Source; from: string
         }
         isNew={false}
       />
+    </>
+  );
+}
+
+// Threads・Fantia・myfans・xfans・FANZA: 中身は読み込まず、推しのページへ移るカードを出す。
+// 会員限定の中身は、利用者が自分のブラウザ(そのサービスにログイン済み)で開いて見る
+function LinkSlide({ source, from, oshi }: { source: Source; from: string; oshi: Oshi }) {
+  const label = PLATFORM_LABEL[source.platform];
+  return (
+    <>
+      <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 50% 30%, ${oshi.color}aa, #000 75%)` }} />
+      <a
+        href={source.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="absolute inset-x-0 top-[var(--bar)] bottom-0 z-[6] flex flex-col items-center justify-center gap-4 px-8 pb-40 text-center"
+      >
+        <OshiAvatar oshi={oshi} size={88} />
+        <p className="text-2xl font-black">{label}</p>
+        <p className="text-sm text-white/75">{source.handle}</p>
+        <span className="mt-2 flex h-12 items-center rounded-full bg-white px-8 text-[15px] font-bold text-black">{label}で見る</span>
+        <span className="text-xs text-white/60">ログイン済みのブラウザで開きます</span>
+      </a>
+      <SideActions oshi={oshi} url={source.url} title={`${oshi.name}の${label}`} platform={label} />
+      <Info platform={label} oshi={oshi} from={from} time="" title={`${label} ${source.handle}`} isNew={false} />
     </>
   );
 }

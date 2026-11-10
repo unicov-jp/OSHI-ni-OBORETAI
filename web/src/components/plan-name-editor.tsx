@@ -9,6 +9,7 @@ import type { PlanLabels } from "@/lib/plans";
 const ROWS: { plan: keyof PlanLabels; note: string }[] = [
   { plan: "free", note: "推し3人まで" },
   { plan: "paid", note: "料金を払っている利用者" },
+  { plan: "advanced", note: "Fantia・myfans・xfans・FANZA も使える利用者" },
   { plan: "master", note: "運営者(管理画面を使える)" },
 ];
 

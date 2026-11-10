@@ -7,7 +7,7 @@ import { refetchFeed, setFeedStatus, setPlan, setSuspended } from "@/lib/actions
 import { PLAN_LABEL, type PlanLabels } from "@/lib/plans";
 import type { ActionResult, AdminFeed, AdminUser, Plan } from "@/lib/types";
 
-const PLANS: Plan[] = ["master", "paid", "free"];
+const PLANS: Plan[] = ["master", "advanced", "paid", "free"];
 
 // 省略されたセルの全文を確認するボタン
 export function DetailButton({ title, text }: { title: string; text: string }) {

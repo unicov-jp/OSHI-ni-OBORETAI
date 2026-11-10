@@ -1,8 +1,9 @@
-export type Platform = "youtube" | "blog" | "x" | "instagram" | "threads" | "tiktok" | "link";
+export type Platform = "youtube" | "blog" | "x" | "instagram" | "threads" | "tiktok" | "link" | "fantia" | "myfans" | "xfans" | "fanza";
 export type SourceMode = "feed" | "embed" | "link";
 export type CategoryKind = "group" | "agency" | "genre";
 export type ViewMode = "oshi" | CategoryKind;
-export type Plan = "free" | "paid" | "master";
+// advanced: 有料の機能に加えて、Fantia・myfans・xfans・FANZA を登録できる
+export type Plan = "free" | "paid" | "advanced" | "master";
 
 export type Category = {
   id: string;
@@ -26,6 +27,8 @@ export type Oshi = {
   photo: string | null;
   // 今のアプリで推しに登録してあるSNSのURL(取り込みの候補)
   sns: { platform: Platform; url: string; from: string }[];
+  // Sensitive として登録した推し(Sensitive プランで切り替えて見る)
+  sensitive: boolean;
 };
 
 export type Source = {

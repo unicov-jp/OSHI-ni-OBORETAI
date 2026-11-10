@@ -2,11 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
+import { SettingSwitch } from "@/components/setting-switch";
 import { Button, Field, inputClass, Notice } from "@/components/ui";
 import { deleteOshiRecord, getOshiForEdit, removeOshiPhoto, saveOshiRecord } from "@/lib/actions/oshi";
 import { importAllSns } from "@/lib/actions/sources";
 import {
-  emptySns, SNS_KEYS, SNS_LABEL, SNS_PLACEHOLDER, type GroupInput, type OshiEditable, type SnsInput,
+  ADVANCED_SNS_KEYS, emptySns, SNS_KEYS, SNS_LABEL, SNS_PLACEHOLDER, type GroupInput, type OshiEditable, type SnsInput, type SnsKey,
 } from "@/lib/oshi-record";
 import { MEMBER_COLORS } from "@/lib/platforms";
 
@@ -23,10 +24,21 @@ const blank = (): OshiEditable => ({
   birthYear: "",
   person: emptySns(),
   groups: [],
+  sensitive: false,
 });
 
-export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: (message: string, id?: string) => void }) {
-  const [value, setValue] = useState<OshiEditable | null>(oshiId ? null : blank());
+// section: 推しの画面のタブごとに出す部分(all=新しく登録するときの全部、profile=写真・名前・色・誕生日、
+// person=本人のSNS、groups=グループとそのSNS)。タブの中で保存したときは、その画面のまま「保存しました」と出す
+export type EditorSection = "all" | "profile" | "person" | "groups";
+
+// canSensitive: Sensitive の登録ができるプランか。defaultSensitive: 新しく登録するときの初め(Sensitive に切り替え中なら ON)
+export function OshiEditor({ oshiId, onDone, section = "all", canSensitive = false, defaultSensitive = false }: {
+  oshiId: string | null; onDone: (message: string, id?: string) => void; section?: EditorSection;
+  canSensitive?: boolean; defaultSensitive?: boolean;
+}) {
+  const router = useRouter();
+  const [saved, setSaved] = useState<string | null>(null);
+  const [value, setValue] = useState<OshiEditable | null>(oshiId ? null : { ...blank(), sensitive: canSensitive && defaultSensitive });
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -54,13 +66,17 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
 
   const save = () => {
     setError(null);
+    setSaved(null);
     startTransition(async () => {
       const result = await saveOshiRecord(value);
       if (!result.ok) return setError(result.error);
       // 入力したSNSを、新着を取る先としても登録する(登録済みのものは重ねない)
       const imported = await importAllSns();
       const count = imported.ok && imported.data ? imported.data.added + imported.data.linked : 0;
-      onDone(`保存しました。今のアプリにも反映されます${count > 0 ? `(SNSを${count}件登録しました)` : ""}`, result.data?.id);
+      const text = `保存しました${count > 0 ? `(SNSを${count}件登録しました)` : ""}`;
+      if (section === "all") return onDone(text, result.data?.id);
+      setSaved(text);
+      router.refresh();
     });
   };
 
@@ -75,7 +91,8 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
 
   return (
     <div className="space-y-6">
-      {value.id ? <PhotoField oshiId={value.id} name={value.name} color={value.color} /> : null}
+      {value.id && (section === "all" || section === "profile") ? <PhotoField oshiId={value.id} name={value.name} color={value.color} /> : null}
+      {section === "all" || section === "profile" ? (
       <div className="space-y-4">
         <Field label="名前">
           <input
@@ -133,10 +150,23 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
             </select>
           </div>
         </fieldset>
+        {canSensitive ? (
+          <SettingSwitch
+            title="Sensitive"
+            status={value.sensitive ? "ON" : "OFF"}
+            on={value.sensitive}
+            description="ON にすると、設定・管理ボタンの長押しで切り替える Sensitive の一覧に入ります。"
+            onToggle={() => set({ sensitive: !value.sensitive })}
+          />
+        ) : null}
       </div>
+      ) : null}
 
-      <SnsFields title="本人のSNS" value={value.person} onChange={(person) => set({ person })} />
+      {section === "all" || section === "person" ? (
+        <SnsFields title="本人のSNS" value={value.person} onChange={(person) => set({ person })} />
+      ) : null}
 
+      {section === "all" || section === "groups" ? (
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-[15px] font-semibold">グループ</h3>
@@ -172,15 +202,17 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
           </div>
         ))}
       </section>
+      ) : null}
 
       {value.id ? null : <p className="text-xs text-muted">アイコンの写真は、登録したあとにこの画面で設定できます。</p>}
       {error ? <Notice tone="danger">{error}</Notice> : null}
+      {saved ? <Notice tone="ok">{saved}</Notice> : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" onClick={save} disabled={pending || !value.name.trim()}>
           {pending ? "保存中" : value.id ? "変更を保存" : "登録する"}
         </Button>
-        {value.id ? (
+        {value.id && (section === "all" || section === "profile") ? (
           confirmDelete ? (
             <>
               <Button variant="danger" onClick={remove} disabled={pending}>
@@ -201,15 +233,71 @@ export function OshiEditor({ oshiId, onDone }: { oshiId: string | null; onDone: 
   );
 }
 
+// 貼り付けたURLから、どのSNSの欄に入れるかを見分ける(当てはまらないものは公式HP・Blog)
+function snsKeyOf(url: string): SnsKey {
+  const host = (() => {
+    try {
+      return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^(www|m|mobile)\./, "");
+    } catch {
+      return "";
+    }
+  })();
+  if (host === "x.com" || host === "twitter.com") return "x";
+  if (host === "instagram.com") return "instagram";
+  if (host === "tiktok.com" || host.endsWith(".tiktok.com")) return "tiktok";
+  if (host === "youtube.com" || host === "youtu.be") return "youtube";
+  if (host === "threads.com" || host === "threads.net") return "threads";
+  if (host === "fantia.jp") return "fantia";
+  if (host === "myfans.jp") return "myfans";
+  if (host === "xfans.tokyo") return "xfans";
+  if (host === "fanza.jp" || host.endsWith(".fanza.jp") || host === "dmm.co.jp" || host.endsWith(".dmm.co.jp")) return "fanza";
+  return "web";
+}
+
+// SNSの入力: いちばん上にURLを貼り付ける欄があり、どのSNSかを見分けて自動で振り分ける。下の欄で直接直すこともできる
 function SnsFields({ title, value, onChange, compact = false }: {
   title: string; value: SnsInput; onChange: (next: SnsInput) => void; compact?: boolean;
 }) {
+  const [url, setUrl] = useState("");
+  const [placed, setPlaced] = useState<string | null>(null);
+  const place = () => {
+    const text = url.trim();
+    if (!text) return;
+    const key = snsKeyOf(text);
+    onChange({ ...value, [key]: text });
+    setPlaced(`${SNS_LABEL[key]}に入れました`);
+    setUrl("");
+  };
   return (
     <section className="space-y-3">
       {compact ? <p className="text-[13px] font-medium text-muted">{title}</p> : <h3 className="text-[15px] font-semibold">{title}</h3>}
+      <div className="flex gap-2">
+        <input
+          className={inputClass}
+          value={url}
+          inputMode="url"
+          maxLength={300}
+          placeholder="SNSのURLを貼り付け(自動で振り分け)"
+          aria-label={`${title}のURL`}
+          onChange={(e) => {
+            setUrl(e.target.value);
+            setPlaced(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              place();
+            }
+          }}
+        />
+        <Button className="w-[72px] shrink-0" onClick={place} disabled={!url.trim()}>
+          入れる
+        </Button>
+      </div>
+      {placed ? <p className="text-xs text-ok">{placed}。保存すると新着を取る先にも登録されます。</p> : null}
       <div className="grid gap-3 sm:grid-cols-2">
         {SNS_KEYS.map((key) => (
-          <Field key={key} label={SNS_LABEL[key]}>
+          <Field key={key} label={ADVANCED_SNS_KEYS.includes(key) ? `${SNS_LABEL[key]}(Sensitive)` : SNS_LABEL[key]}>
             <input
               className={inputClass}
               value={value[key]}

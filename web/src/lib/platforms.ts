@@ -8,7 +8,14 @@ export const PLATFORM_LABEL: Record<Platform, string> = {
   threads: "Threads",
   tiktok: "TikTok",
   link: "リンク",
+  fantia: "Fantia",
+  myfans: "myfans",
+  xfans: "xfans",
+  fanza: "FANZA",
 };
+
+// Advanced プランだけが登録できるサービス
+export const ADVANCED_PLATFORMS: Platform[] = ["fantia", "myfans", "xfans", "fanza"];
 
 // ロゴの代わりに使う短い記号(各社のロゴ画像は使わない)
 export const PLATFORM_MARK: Record<Platform, string> = {
@@ -19,6 +26,10 @@ export const PLATFORM_MARK: Record<Platform, string> = {
   threads: "Th",
   tiktok: "TT",
   link: "URL",
+  fantia: "Fa",
+  myfans: "mf",
+  xfans: "xf",
+  fanza: "FZ",
 };
 
 export const PLATFORM_EXAMPLE: Record<Platform, string> = {
@@ -29,9 +40,13 @@ export const PLATFORM_EXAMPLE: Record<Platform, string> = {
   threads: "https://www.threads.com/@handle",
   tiktok: "https://www.tiktok.com/@handle",
   link: "https://example.com/",
+  fantia: "https://fantia.jp/fanclubs/12345",
+  myfans: "https://myfans.jp/handle",
+  xfans: "https://www.xfans.tokyo/handle",
+  fanza: "https://www.dmm.co.jp/digital/videoa/-/list/=/article=actress/id=12345/",
 };
 
-export const PLATFORM_ORDER: Platform[] = ["youtube", "blog", "x", "instagram", "threads", "tiktok", "link"];
+export const PLATFORM_ORDER: Platform[] = ["youtube", "blog", "x", "instagram", "threads", "tiktok", "fantia", "myfans", "xfans", "fanza", "link"];
 
 // 各サービスの表示名の横に置く短い説明。利用者が「何がどう表示されるか」を登録前に分かるようにする。
 export const PLATFORM_HOW: Record<Platform, string> = {
@@ -42,6 +57,10 @@ export const PLATFORM_HOW: Record<Platform, string> = {
   threads: "プロフィールへのリンクとして保存します",
   tiktok: "公式の埋め込みで表示します",
   link: "リンクとして保存します",
+  fantia: "ファンクラブへのリンクとして保存します",
+  myfans: "プロフィールへのリンクとして保存します",
+  xfans: "プロフィールへのリンクとして保存します",
+  fanza: "作品一覧・女優ページへのリンクとして保存します",
 };
 
 export type ParsedAccount = {
@@ -156,6 +175,42 @@ export function parseAccountUrl(input: string): ParsedAccount | { error: string 
       return { error: "TikTokはプロフィールのURLを入力してください(例: https://www.tiktok.com/@handle)" };
     }
     return { platform: "tiktok", mode: "embed", url: `https://www.tiktok.com/@${handle}`, handle: `@${handle}` };
+  }
+
+  // ファン向けの有料サービス(Advanced プラン)。中身は会員限定なので取りに行かず、ページへのリンクとして保存する
+  if (h === "fantia.jp") {
+    const first = segments[0] ?? "";
+    const id = segments[1] ?? "";
+    if (first !== "fanclubs" || !/^\d{1,12}$/.test(id)) {
+      return { error: "Fantiaはファンクラブのページのアドレスを入力してください(例: https://fantia.jp/fanclubs/12345)" };
+    }
+    return { platform: "fantia", mode: "link", url: `https://fantia.jp/fanclubs/${id}`, handle: `fanclubs/${id}` };
+  }
+  if (h === "myfans.jp") {
+    const handle = (segments[0] ?? "").replace(/^@/, "");
+    if (!/^[A-Za-z0-9._-]{1,50}$/.test(handle)) {
+      return { error: "myfansはプロフィールのアドレスを入力してください(例: https://myfans.jp/handle)" };
+    }
+    return { platform: "myfans", mode: "link", url: `https://myfans.jp/${handle}`, handle: `@${handle}` };
+  }
+  if (h === "xfans.tokyo") {
+    const handle = (segments[0] ?? "").replace(/^@/, "");
+    if (!/^[A-Za-z0-9._-]{1,50}$/.test(handle)) {
+      return { error: "xfansはプロフィールのアドレスを入力してください(例: https://www.xfans.tokyo/handle)" };
+    }
+    return { platform: "xfans", mode: "link", url: `https://www.xfans.tokyo/${handle}`, handle: `@${handle}` };
+  }
+  // FANZA(DMM)。女優・作品一覧などのページをそのまま保存する(トップページは推しのページではないので受け付けない)
+  if (h === "fanza.jp" || h.endsWith(".fanza.jp") || h === "dmm.co.jp" || h.endsWith(".dmm.co.jp")) {
+    const path = url.pathname.replace(/\/+$/, "");
+    if (!path || path === "/top" || segments.length === 0) {
+      return { error: "FANZAは推しの女優ページや作品一覧のアドレスを入力してください(トップページは登録できません)" };
+    }
+    const saved = `https://${url.hostname.toLowerCase()}${url.pathname}${url.search}`;
+    if (saved.length > 300) return { error: "FANZAのアドレスが長すぎます" };
+    const actress = /(?:^|\/)id=(\d{1,12})(?:\/|$)/.exec(url.pathname)?.[1] ?? url.searchParams.get("actress") ?? "";
+    const handle = /^\d{1,12}$/.test(actress) ? `actress/${actress}` : (segments[segments.length - 1] ?? "").slice(0, 60);
+    return { platform: "fanza", mode: "link", url: saved, handle };
   }
 
   // それ以外はBlog候補。フィード(RSS/Atom)が見つかれば自動取得、なければリンクとして保存する。

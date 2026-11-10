@@ -36,7 +36,7 @@ export async function setPlan(userId: string, plan: Plan): Promise<ActionResult>
   if (DEMO) return { ok: false, error: DEMO_ERROR };
   await requireAdmin();
   if (!uuid.safeParse(userId).success) return { ok: false, error: "対象が正しくありません" };
-  if (!["master", "paid", "free"].includes(plan)) return { ok: false, error: "プランが正しくありません" };
+  if (!["master", "advanced", "paid", "free"].includes(plan)) return { ok: false, error: "プランが正しくありません" };
   const supabase = await createClient();
   const { error } = await supabase.rpc("oshikatsu_admin_set_plan", { target: userId, new_plan: plan });
   if (error) return failure(error.message);
@@ -86,14 +86,16 @@ export async function refetchFeed(feedId: string): Promise<ActionResult<{ added:
 }
 
 // Subscription の料金: 推し1人あたりの月額を変える
-export async function setPerOshiPrice(perOshi: number): Promise<ActionResult> {
+// advancedPerOshi: Advanced プランの推し1人あたりの月額
+export async function setPerOshiPrice(perOshi: number, advancedPerOshi: number): Promise<ActionResult> {
   if (DEMO) return { ok: false, error: DEMO_ERROR };
   await requireAdmin();
-  if (!Number.isInteger(perOshi) || perOshi < 0 || perOshi > 100000) {
+  const valid = (n: number) => Number.isInteger(n) && n >= 0 && n <= 100000;
+  if (!valid(perOshi) || !valid(advancedPerOshi)) {
     return { ok: false, error: "金額は0〜100,000円で入力してください" };
   }
   const supabase = await createClient();
-  const { error } = await supabase.rpc("oshikatsu_admin_set_price", { per_oshi: perOshi });
+  const { error } = await supabase.rpc("oshikatsu_admin_set_price", { per_oshi: perOshi, advanced_per_oshi: advancedPerOshi });
   if (error) {
     if (error.message.includes("oshikatsu_admin_set_price")) {
       return { ok: false, error: "料金の表がまだありません。新着用のSQLを実行してください" };
@@ -106,11 +108,12 @@ export async function setPerOshiPrice(perOshi: number): Promise<ActionResult> {
 }
 
 // プラン名(表示名)を変える
-export async function setPlanNames(names: { master: string; paid: string; free: string }): Promise<ActionResult> {
+export async function setPlanNames(names: { master: string; advanced: string; paid: string; free: string }): Promise<ActionResult> {
   if (DEMO) return { ok: false, error: DEMO_ERROR };
   await requireAdmin();
   const clean = {
     master: names.master.trim(),
+    advanced: names.advanced.trim(),
     paid: names.paid.trim(),
     free: names.free.trim(),
   };

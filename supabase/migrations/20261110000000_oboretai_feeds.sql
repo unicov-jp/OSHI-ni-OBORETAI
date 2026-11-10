@@ -179,12 +179,12 @@ $$;
 -- 上限の正本。無料: 推し3人 / SNS15件、有料: 推し50人 / SNS300件、マスター: 上限なし（null）。
 create or replace function public.oshikatsu_max_oshi(uid uuid) returns int
 language sql stable security definer set search_path = '' as $$
-  select case public.oshikatsu_plan_of(uid) when 'master' then null when 'paid' then 50 else 3 end;
+  select case public.oshikatsu_plan_of(uid) when 'master' then null when 'paid' then 50 when 'advanced' then 50 else 3 end;
 $$;
 
 create or replace function public.oshikatsu_max_sources(uid uuid) returns int
 language sql stable security definer set search_path = '' as $$
-  select case public.oshikatsu_plan_of(uid) when 'master' then null when 'paid' then 300 else 15 end;
+  select case public.oshikatsu_plan_of(uid) when 'master' then null when 'paid' then 300 when 'advanced' then 300 else 15 end;
 $$;
 
 -- 停止されておらず、二段階認証を登録済みなら aal2 で入っていること。
@@ -495,9 +495,23 @@ language sql security definer set search_path = '' as $$
 $$;
 
 -- 保存期間を過ぎた項目・ログと、誰も登録していない取得元を消す。
-create or replace function public.oshikatsu_cleanup_old_data(retention_days int default 30) returns void
+-- 古いデータの片付け(毎日の自動取得のあとに呼ぶ)。
+-- 新着(YouTube・Blog)は期間では消さず、取得元ごとに新しい順で keep_per_feed 件まで残す(容量を一定に保つ)。
+-- retention_days を 1 以上にしたときだけ、それより古いもの(公開日)も消す。0 は期間の制限なし
+drop function if exists public.oshikatsu_cleanup_old_data(int);
+create or replace function public.oshikatsu_cleanup_old_data(retention_days int default 0, keep_per_feed int default 500) returns void
 language sql security definer set search_path = '' as $$
-  delete from public.oshikatsu_feed_items where fetched_at < now() - make_interval(days => greatest(retention_days, 1));
+  delete from public.oshikatsu_feed_items i
+    using (
+      select id from (
+        select id, row_number() over (partition by feed_id order by published_at desc) as n
+        from public.oshikatsu_feed_items
+      ) ranked
+      where ranked.n > greatest(keep_per_feed, 50)
+    ) extra
+    where i.id = extra.id;
+  delete from public.oshikatsu_feed_items
+    where retention_days > 0 and published_at < now() - make_interval(days => retention_days);
   delete from public.oshikatsu_fetch_logs where created_at < now() - interval '30 days';
   delete from public.oshikatsu_rate_events where created_at < now() - interval '1 day';
   delete from public.oshikatsu_feeds f
@@ -565,7 +579,7 @@ begin
   from public.oshikatsu_profiles p
   where coalesce(search, '') = ''
     or p.email ilike '%' || search || '%'
-  order by case p.plan when 'master' then 1 when 'paid' then 2 else 3 end, p.created_at desc
+  order by case p.plan when 'master' then 1 when 'advanced' then 2 when 'paid' then 3 else 4 end, p.created_at desc
   limit least(greatest(page_size, 1), 200) offset greatest(page_offset, 0);
 end;
 $$;
@@ -580,7 +594,7 @@ begin
   if target = (select auth.uid()) then
     raise exception 'SELF_CHANGE' using errcode = 'P0001';
   end if;
-  if new_plan not in ('master', 'paid', 'free') then
+  if new_plan not in ('master', 'advanced', 'paid', 'free') then
     raise exception 'INVALID_PLAN' using errcode = 'P0001';
   end if;
   update public.oshikatsu_profiles set plan = new_plan, updated_at = now() where user_id = target;
@@ -613,7 +627,7 @@ revoke all on function public.oshikatsu_admin_set_suspended(uuid, boolean) from 
 revoke all on function public.oshikatsu_admin_set_feed_status(uuid, text) from public, anon;
 revoke all on function public.oshikatsu_claim_due_feeds(int, uuid) from public, anon, authenticated;
 revoke all on function public.oshikatsu_bump_api_usage(text, int) from public, anon, authenticated;
-revoke all on function public.oshikatsu_cleanup_old_data(int) from public, anon, authenticated;
+revoke all on function public.oshikatsu_cleanup_old_data(int, int) from public, anon, authenticated;
 revoke all on function public.oshikatsu_claim_user_feeds(uuid, int, int) from public, anon, authenticated;
 revoke all on function public.oshikatsu_set_display_name(text) from public, anon;
 revoke all on function public.oshikatsu_admin_list_users(text, int, int) from public, anon;
@@ -636,7 +650,7 @@ grant execute on function public.oshikatsu_max_oshi(uuid) to service_role;
 grant execute on function public.oshikatsu_max_sources(uuid) to service_role;
 grant execute on function public.oshikatsu_claim_due_feeds(int, uuid) to service_role;
 grant execute on function public.oshikatsu_bump_api_usage(text, int) to service_role;
-grant execute on function public.oshikatsu_cleanup_old_data(int) to service_role;
+grant execute on function public.oshikatsu_cleanup_old_data(int, int) to service_role;
 grant execute on function public.oshikatsu_claim_user_feeds(uuid, int, int) to service_role;
 
 -- ============ Subscription の料金(推し1人ごとの加算) ============
@@ -656,29 +670,37 @@ create policy "oshikatsu_price_settings_select" on public.oshikatsu_price_settin
 revoke all on public.oshikatsu_price_settings from anon, authenticated;
 grant select on public.oshikatsu_price_settings to anon, authenticated;
 
--- 運営者向け：推し1人あたりの月額を変える。操作ログに残す
-create or replace function public.oshikatsu_admin_set_price(per_oshi int) returns void
+-- Advanced プランの推し1人あたりの月額(既定100円)
+alter table public.oshikatsu_price_settings
+  add column if not exists advanced_per_oshi_yen int not null default 100 check (advanced_per_oshi_yen between 0 and 100000);
+
+-- 運営者向け：推し1人あたりの月額(有料・Advanced)を変える。操作ログに残す
+drop function if exists public.oshikatsu_admin_set_price(int);
+create or replace function public.oshikatsu_admin_set_price(per_oshi int, advanced_per_oshi int default 100) returns void
 language plpgsql security definer set search_path = '' as $$
 begin
   if not public.oshikatsu_is_admin() then
     raise exception 'FORBIDDEN' using errcode = '42501';
   end if;
-  if per_oshi is null or per_oshi < 0 or per_oshi > 100000 then
+  if per_oshi is null or per_oshi < 0 or per_oshi > 100000
+     or advanced_per_oshi is null or advanced_per_oshi < 0 or advanced_per_oshi > 100000 then
     raise exception 'INVALID_PRICE' using errcode = 'P0001';
   end if;
-  insert into public.oshikatsu_price_settings (id, per_oshi_yen, updated_at) values (true, per_oshi, now())
-  on conflict (id) do update set per_oshi_yen = excluded.per_oshi_yen, updated_at = now();
+  insert into public.oshikatsu_price_settings (id, per_oshi_yen, advanced_per_oshi_yen, updated_at)
+  values (true, per_oshi, advanced_per_oshi, now())
+  on conflict (id) do update
+    set per_oshi_yen = excluded.per_oshi_yen, advanced_per_oshi_yen = excluded.advanced_per_oshi_yen, updated_at = now();
   insert into public.oshikatsu_audit_logs (admin_id, action, target, detail)
-  values ((select auth.uid()), 'price.per_oshi', 'subscription', per_oshi::text);
+  values ((select auth.uid()), 'price.per_oshi', 'subscription', per_oshi::text || ' / advanced ' || advanced_per_oshi::text);
 end;
 $$;
-revoke all on function public.oshikatsu_admin_set_price(int) from public, anon;
-grant execute on function public.oshikatsu_admin_set_price(int) to authenticated;
+revoke all on function public.oshikatsu_admin_set_price(int, int) from public, anon;
+grant execute on function public.oshikatsu_admin_set_price(int, int) to authenticated;
 
 -- ============ プラン名(表示名) ============
 -- master / paid / free の表示名を管理画面の「料金」から変える。未設定なら画面側の既定(Developer・有料・無料)を使う
 create table if not exists public.oshikatsu_plan_names (
-  plan       text        primary key check (plan in ('master', 'paid', 'free')),
+  plan       text        primary key check (plan in ('master', 'advanced', 'paid', 'free')),
   label      text        not null check (char_length(label) between 1 and 20),
   updated_at timestamptz not null default now()
 );
@@ -701,7 +723,7 @@ begin
     raise exception 'INVALID_NAMES' using errcode = 'P0001';
   end if;
   for k in select jsonb_object_keys(names) loop
-    if k not in ('master', 'paid', 'free') then
+    if k not in ('master', 'advanced', 'paid', 'free') then
       raise exception 'INVALID_NAMES' using errcode = 'P0001';
     end if;
     insert into public.oshikatsu_plan_names (plan, label, updated_at) values (k, trim(names->>k), now())
@@ -713,6 +735,40 @@ end;
 $$;
 revoke all on function public.oshikatsu_admin_set_plan_names(jsonb) from public, anon;
 grant execute on function public.oshikatsu_admin_set_plan_names(jsonb) to authenticated;
+
+-- ============ Advanced プランと、新しく足したサービス ============
+-- プランに advanced(Fantia・myfans・xfans も使える)を足す。登録済みの利用者・SNS はそのまま
+do $$
+declare c text;
+begin
+  for c in select conname from pg_constraint
+    where conrelid = 'public.oshikatsu_profiles'::regclass and contype = 'c' and pg_get_constraintdef(oid) ilike '%plan%'
+  loop
+    execute format('alter table public.oshikatsu_profiles drop constraint %I', c);
+  end loop;
+  for c in select conname from pg_constraint
+    where conrelid = 'public.oshikatsu_plan_names'::regclass and contype = 'c' and pg_get_constraintdef(oid) ilike '%plan%'
+  loop
+    execute format('alter table public.oshikatsu_plan_names drop constraint %I', c);
+  end loop;
+  -- SNSの種類に Fantia・myfans・xfans・FANZA を足す
+  for c in select conname from pg_constraint
+    where conrelid = 'public.oshikatsu_sources'::regclass and contype = 'c' and pg_get_constraintdef(oid) ilike '%platform%'
+  loop
+    execute format('alter table public.oshikatsu_sources drop constraint %I', c);
+  end loop;
+end $$;
+alter table public.oshikatsu_profiles
+  add constraint oshikatsu_profiles_plan_check check (plan in ('master', 'advanced', 'paid', 'free'));
+alter table public.oshikatsu_plan_names
+  add constraint oshikatsu_plan_names_plan_check check (plan in ('master', 'advanced', 'paid', 'free'));
+alter table public.oshikatsu_sources
+  add constraint oshikatsu_sources_platform_check
+  check (platform in ('youtube', 'blog', 'x', 'instagram', 'threads', 'tiktok', 'link', 'fantia', 'myfans', 'xfans', 'fanza'));
+
+-- プラン名の変更: Starter → Pro、Advanced → Sensitive(管理画面で別の名前にしていれば、その名前のまま)
+update public.oshikatsu_plan_names set label = 'Pro', updated_at = now() where plan = 'paid' and label = 'Starter';
+update public.oshikatsu_plan_names set label = 'Sensitive', updated_at = now() where plan = 'advanced' and label = 'Advanced';
 
 -- 追加した表・関数をすぐ使えるように、Supabase のAPIの一覧を読み直させる
 notify pgrst, 'reload schema';

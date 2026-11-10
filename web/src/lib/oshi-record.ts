@@ -1,7 +1,11 @@
 // 推しの記録(oshikatsu_records の kind = 'oshi')を、今のアプリ(推し活手帳)と同じ形で作る・直すための部品。
 // 新しいアプリと今のアプリのどちらで登録・編集しても、同じ1行を読み書きする(同期で互いに反映される)。
 
-export const SNS_KEYS = ["x", "instagram", "tiktok", "youtube", "web"] as const;
+// 並びは入力欄の順。threads 以降は後から足したもの(fantia・myfans・xfans・fanza は Sensitive プランで新着の取得先に登録される)
+export const SNS_KEYS = ["x", "instagram", "tiktok", "youtube", "threads", "web", "fantia", "myfans", "xfans", "fanza"] as const;
+// URLのまま保存するもの(それ以外は ID・ハンドルに直して保存する)
+const URL_KEYS: readonly string[] = ["web", "fantia", "myfans", "xfans", "fanza"];
+export const ADVANCED_SNS_KEYS: readonly SnsKey[] = ["fantia", "myfans", "xfans", "fanza"];
 export type SnsKey = (typeof SNS_KEYS)[number];
 export type SnsInput = Record<SnsKey, string>;
 
@@ -10,7 +14,12 @@ export const SNS_LABEL: Record<SnsKey, string> = {
   instagram: "Instagram",
   tiktok: "TikTok",
   youtube: "YouTube",
+  threads: "Threads",
   web: "公式HP・Blog",
+  fantia: "Fantia",
+  myfans: "myfans",
+  xfans: "xfans",
+  fanza: "FANZA",
 };
 
 export const SNS_PLACEHOLDER: Record<SnsKey, string> = {
@@ -18,7 +27,12 @@ export const SNS_PLACEHOLDER: Record<SnsKey, string> = {
   instagram: "ID またはURL",
   tiktok: "ID またはURL",
   youtube: "@ハンドル・UC… またはURL",
+  threads: "ID またはURL",
   web: "https://…",
+  fantia: "https://fantia.jp/fanclubs/…",
+  myfans: "https://myfans.jp/…",
+  xfans: "https://www.xfans.tokyo/…",
+  fanza: "https://www.dmm.co.jp/…",
 };
 
 export type GroupInput = { id?: string; name: string; sns: SnsInput };
@@ -33,19 +47,23 @@ export type OshiEditable = {
   birthYear: string;
   person: SnsInput;
   groups: GroupInput[];
+  // Sensitive として登録する推しか
+  sensitive: boolean;
 };
 
-export const emptySns = (): SnsInput => ({ x: "", instagram: "", tiktok: "", youtube: "", web: "" });
+export const emptySns = (): SnsInput => ({
+  x: "", instagram: "", tiktok: "", youtube: "", threads: "", web: "", fantia: "", myfans: "", xfans: "", fanza: "",
+});
 
 // 今のアプリは SNS を「ID」で持つ(公式HPだけURL)。URLが入力されたら ID に直して保存する。
 export function toStoredSns(key: SnsKey, input: string): string {
   const value = input.trim();
   if (!value) return "";
-  if (key === "web") {
+  if (URL_KEYS.includes(key)) {
     if (/^https?:\/\//i.test(value)) return value;
     return /^[\w.-]+\.[a-z]{2,}/i.test(value) ? `https://${value}` : "";
   }
-  if (!/^https?:\/\//i.test(value) && !/^(www\.)?(x|twitter|instagram|tiktok|youtube)\.com\//i.test(value)) {
+  if (!/^https?:\/\//i.test(value) && !/^(www\.)?(x|twitter|instagram|tiktok|youtube|threads)\.(com|net)\//i.test(value)) {
     return value.replace(/^@+/, "").slice(0, 100);
   }
   try {
@@ -92,6 +110,7 @@ export function editableFrom(id: string, data: Raw): OshiEditable {
     birthYear: str(data.birthYear),
     person,
     groups,
+    sensitive: data.sensitive === true,
   };
 }
 
@@ -128,6 +147,7 @@ export function mergeIntoRecord(current: Raw | null, input: OshiEditable, extra:
     birthMonth: input.birthMonth,
     birthDay: input.birthDay,
     birthYear: input.birthYear,
+    sensitive: input.sensitive === true,
     groups,
     // 古い形式(group 1つ)の項目は、グループを消したときに復活しないよう空にする
     group: "",

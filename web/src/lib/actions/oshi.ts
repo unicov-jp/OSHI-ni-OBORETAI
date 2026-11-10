@@ -6,7 +6,8 @@ import { requireViewer } from "@/lib/auth";
 import { getTimeline } from "@/lib/data";
 import { DEMO } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
-import { editableFrom, mergeIntoRecord, type OshiEditable } from "@/lib/oshi-record";
+import { editableFrom, mergeIntoRecord, SNS_KEYS, type OshiEditable, type SnsKey } from "@/lib/oshi-record";
+import { canUseAdvanced } from "@/lib/plans";
 import type { ActionResult, Platform, TimelineItem } from "@/lib/types";
 
 // 推しの id は今のアプリの記録(oshikatsu_records)の id。uuid とは限らない。
@@ -15,10 +16,8 @@ const oshiId = z.string().trim().min(1).max(100);
 // 推しの登録・編集・削除。今のアプリ(推し活手帳)と同じ oshikatsu_records の行を読み書きするので、
 // どちらのアプリで登録・編集しても、同期でもう一方に反映される。
 
-const sns = z.object({
-  x: z.string().max(300), instagram: z.string().max(300), tiktok: z.string().max(300),
-  youtube: z.string().max(300), web: z.string().max(300),
-});
+// SNSの欄(SNS_KEYS と同じ並び)。足した欄が保存時に落ちないよう、SNS_KEYS から作る
+const sns = z.object(Object.fromEntries(SNS_KEYS.map((key) => [key, z.string().max(300).default("")])) as Record<SnsKey, z.ZodDefault<z.ZodString>>);
 const editSchema = z.object({
   id: oshiId.optional(),
   name: z.string().trim().min(1, "名前を入力してください").max(40, "名前は40文字までです"),
@@ -29,6 +28,7 @@ const editSchema = z.object({
   birthYear: z.string().regex(/^(|19[0-9]{2}|20[0-9]{2})$/),
   person: sns,
   groups: z.array(z.object({ id: z.string().max(100).optional(), name: z.string().max(40, "グループ名は40文字までです"), sns })).max(10),
+  sensitive: z.boolean().default(false),
 });
 
 // 編集画面に出す値(写真やギャラリーなど、ここで触らない項目は返さない)
@@ -71,6 +71,9 @@ export async function saveOshiRecord(input: OshiEditable): Promise<ActionResult<
   } else if (viewer.maxOshi !== null && (rows ?? []).length >= viewer.maxOshi) {
     return { ok: false, error: `登録できる推しは${viewer.maxOshi}人までです。` };
   }
+
+  // Sensitive の登録・解除は Sensitive プラン(と Developer)だけ。それ以外のプランでは今の値のまま
+  if (!canUseAdvanced(viewer.plan)) value.sensitive = current?.sensitive === true;
 
   const id = value.id ?? crypto.randomUUID();
   const order = (rows ?? []).length;

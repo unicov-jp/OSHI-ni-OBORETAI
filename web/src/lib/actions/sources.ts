@@ -8,7 +8,8 @@ import { discoverFeed } from "@/lib/fetchers/rss";
 import { runFeed, type FeedRow } from "@/lib/fetchers/run";
 import { SafeFetchError } from "@/lib/fetchers/safe-fetch";
 import { resolveYoutubeHandle, youtubeFeedUrl } from "@/lib/fetchers/youtube";
-import { parseAccountUrl, PLATFORM_EXAMPLE, PLATFORM_LABEL } from "@/lib/platforms";
+import { ADVANCED_PLATFORMS, parseAccountUrl, PLATFORM_EXAMPLE, PLATFORM_LABEL } from "@/lib/platforms";
+import { canUseAdvanced } from "@/lib/plans";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getLibrary } from "@/lib/data";
@@ -37,7 +38,7 @@ const addSchema = z.object({
   url: z.string().trim().min(1).max(500),
   label: z.string().trim().max(60).default(""),
   // どのサービスの区画から追加したか。入力されたURLがそのサービスのものかを確かめる
-  expected: z.enum(["youtube", "blog", "x", "instagram", "threads", "tiktok", "link"]).optional(),
+  expected: z.enum(["youtube", "blog", "x", "instagram", "threads", "tiktok", "link", "fantia", "myfans", "xfans", "fanza"]).optional(),
 });
 
 type Resolved = {
@@ -68,6 +69,11 @@ async function addSourceFor(
 
   const account = parseAccountUrl(parsed.data.url);
   if ("error" in account) return { ok: false, error: account.error };
+
+  // Fantia・myfans・xfans・FANZA は Sensitive プランだけ
+  if (ADVANCED_PLATFORMS.includes(account.platform) && !canUseAdvanced(viewer.plan)) {
+    return { ok: false, error: `${PLATFORM_LABEL[account.platform]}は Sensitive プランで登録できます。` };
+  }
 
   const expected = parsed.data.expected;
   const generic = account.platform === "blog"; // SNS以外のURL
@@ -230,6 +236,8 @@ export async function importAllSns(): Promise<
     const registered = new Set(library.sources.filter((s) => s.oshi_id === oshi.id).map((s) => normalize(s.url)));
     for (const sns of oshi.sns) {
       if (registered.has(normalize(sns.url))) continue;
+      // Fantia・myfans・xfans・FANZA は Sensitive プランのときだけ取り込む(それ以外のプランでは入力が残っていても登録しない)
+      if (ADVANCED_PLATFORMS.includes(sns.platform) && !canUseAdvanced(viewer.plan)) continue;
       registered.add(normalize(sns.url));
       queue.push({ oshiId: oshi.id, name: oshi.name, platform: sns.platform, url: sns.url });
     }

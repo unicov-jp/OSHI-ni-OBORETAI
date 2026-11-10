@@ -266,6 +266,10 @@ function AddSheet({ oshi, onClose, initialMode = "menu", initialDate }: {
               </button>
             </div>
 
+            <p className="text-[11px] leading-relaxed text-white/50">
+              写真は、Google アカウントに紐づく Google ドライブの「推しに溺れたいapp」フォルダに保存されます。
+            </p>
+
             {error ? <p className="text-sm text-[#ff6b8f]">{error}</p> : null}
 
             <button

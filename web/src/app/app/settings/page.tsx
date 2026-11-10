@@ -75,7 +75,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       <form action="/auth/signout" method="post">
         <button
           type="submit"
-          className="h-11 w-full rounded-xl bg-danger text-sm font-bold text-white hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2"
+          className="h-11 w-full rounded-xl bg-[#e5484d] text-sm font-bold text-white hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2"
         >
           ログアウト
         </button>

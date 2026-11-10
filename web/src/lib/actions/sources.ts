@@ -15,6 +15,21 @@ import { getLibrary } from "@/lib/data";
 import type { ActionResult, Platform, SourceMode, Viewer } from "@/lib/types";
 
 const DEMO_ERROR = "デモ表示では変更できません";
+// DBへの書き込みに失敗したとき、原因を調べられるよう失敗の種類(コードと短い説明)を添える。
+// 鍵の値などの秘密は含まれない。
+function dbError(error: { code?: string; message?: string } | null): string {
+  const base = "登録できませんでした。時間をおいてもう一度お試しください。";
+  if (!error) return base;
+  const message = (error.message ?? "").slice(0, 120);
+  if (error.code === "42501" || /permission denied|row-level security/i.test(message)) {
+    return `登録できませんでした(書き込みの権限がありません: ${error.code ?? ""})。サーバーの秘密鍵(SUPABASE_SECRET_KEY)の設定を確認してください。`;
+  }
+  if (error.code === "42P01" || /does not exist/i.test(message)) {
+    return `登録できませんでした(表が見つかりません: ${error.code ?? ""})。新着用のSQLを実行してください。`;
+  }
+  return `${base}(${error.code ?? "?"}: ${message})`;
+}
+
 const RATE_LIMIT_ERROR = "登録の回数が上限に達しました。1時間ほどおいてからお試しください。";
 
 const addSchema = z.object({
@@ -166,7 +181,7 @@ async function addSourceFor(
         )
         .select("id, platform, external_key, feed_url, title, error_count")
         .single();
-      if (error || !created) return { ok: false, error: "登録できませんでした。時間をおいてもう一度お試しください。" };
+      if (error || !created) return { ok: false, error: dbError(error) };
       feedId = created.id as string;
       newFeed = created as FeedRow;
     }
@@ -188,7 +203,7 @@ async function addSourceFor(
     if (insertError.message.includes("SOURCE_LIMIT")) {
       return { ok: false, error: `登録できるアカウントは${viewer.maxSources}件までです。` };
     }
-    return { ok: false, error: "登録できませんでした。時間をおいてもう一度お試しください。" };
+    return { ok: false, error: dbError(insertError) };
   }
 
   // 初めて登録された取得元は、その場で1回取得して新着をすぐ表示できるようにする

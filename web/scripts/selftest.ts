@@ -5,6 +5,7 @@ import { isPublicAddress, safeFetchText } from "@/lib/fetchers/safe-fetch";
 import { embedHandle, parseAccountUrl } from "@/lib/platforms";
 import { recordsToLibrary } from "@/lib/records";
 import { postCodesFromEmbed } from "@/lib/fetchers/instagram";
+import { postsFromSyndication } from "@/lib/fetchers/x";
 import { editableFrom, emptySns, mergeIntoRecord, toStoredSns } from "@/lib/oshi-record";
 import { decodeEntities, hostOf } from "@/lib/text";
 import { channelFromPage } from "@/lib/fetchers/youtube";
@@ -123,6 +124,14 @@ async function main() {
     ["DEsc4ped01", "DEsc4ped02"],
   );
   check("Instagram 投稿なし", postCodesFromEmbed("<html></html>"), []);
+
+  // --- X の投稿の番号と日時を読む ---
+  check(
+    "X 投稿(__NEXT_DATA__)",
+    postsFromSyndication('<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"timeline":{"entries":[{"content":{"tweet":{"id_str":"1855000000000000111","created_at":"Mon Nov 10 09:00:00 +0000 2026"}}},{"content":{"tweet":{"id_str":"1855000000000000222","created_at":"Tue Nov 11 09:00:00 +0000 2026"}}}]}}}}</script>').map((p) => p.id),
+    ["1855000000000000222", "1855000000000000111"],
+  );
+  check("X 投稿なし", postsFromSyndication("<html></html>"), []);
 
   // --- 推しの記録の読み書き(今のアプリと共通) ---
   check("SNS: URLをIDに", toStoredSns("x", "https://x.com/iON_kono_"), "iON_kono_");

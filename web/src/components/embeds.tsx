@@ -7,7 +7,12 @@ import type { Source } from "@/lib/types";
 
 declare global {
   interface Window {
-    twttr?: { widgets?: { load: (element?: HTMLElement) => void } };
+    twttr?: {
+      widgets?: {
+        load: (element?: HTMLElement) => void;
+        createTweet?: (id: string, element: HTMLElement, options?: Record<string, unknown>) => Promise<HTMLElement | undefined>;
+      };
+    };
   }
 }
 
@@ -142,6 +147,33 @@ function TikTokCreator({ handle, url }: { handle: string; url: string }) {
 
   if (failed) return <Fallback label="TikTok" url={url} reason="TikTok の埋め込み表示が読み込めませんでした。" />;
   return <div ref={ref} className="h-full overflow-y-auto" />;
+}
+
+// X の投稿1件(公式の投稿埋め込み。ログインしていなくても表示される)
+export function XPostEmbed({ id, url }: { id: string; url: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const theme = useTheme();
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const container = ref.current;
+    if (!container) return;
+    container.replaceChildren();
+    let cancelled = false;
+    loadXScript().then(async () => {
+      const create = window.twttr?.widgets?.createTweet;
+      if (cancelled) return;
+      if (!create) return setFailed(true);
+      const element = await create(id, container, { theme, dnt: true, lang: "ja", align: "center", conversation: "none" });
+      if (!cancelled && !element) setFailed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, theme]);
+
+  if (failed) return <Fallback label="X" url={url} reason="この投稿を表示できませんでした(削除されたか、公開範囲が限られています)。" />;
+  return <div ref={ref} className="flex h-full items-start justify-center overflow-y-auto p-2" />;
 }
 
 // Instagram の投稿1件(公式の投稿埋め込み)

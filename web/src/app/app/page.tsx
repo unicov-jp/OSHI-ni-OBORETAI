@@ -4,6 +4,7 @@ import { SwipeFeed } from "@/components/swipe-feed";
 import { EmptyState, buttonClass } from "@/components/ui";
 import { getLibrary, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
 import { instagramPostCodes } from "@/lib/fetchers/instagram";
+import { xPosts } from "@/lib/fetchers/x";
 
 export const metadata: Metadata = { title: "新着" };
 
@@ -21,7 +22,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
         body="今のアプリ(推し活手帳)で推しを登録すると、ここに推しごとの新着が並びます。"
         action={
           <Link href="/app/manage" className={buttonClass("primary")}>
-            推しのSNSを見る
+            推しの登録を開く
           </Link>
         }
       />
@@ -30,13 +31,18 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
 
   const active = library.oshi.find((o) => o.id === params.tab) ?? library.oshi[0];
   const sources = library.sources.filter((s) => s.oshi_id === active.id);
-  // Instagram は投稿1件ずつ見せるため、各アカウントの最新の投稿のコードを読む(読めなければアカウント表示)
-  const [items, instagram] = await Promise.all([
+  const handleOf = (handle: string) => handle.replace(/^@/, "");
+
+  // Instagram は投稿1件ずつ、X は最新の投稿の番号と日時を読む(読めなければアカウントの表示)
+  const [items, instagram, x] = await Promise.all([
     getTimeline({ oshiIds: [active.id] }),
     Promise.all(
       sources
         .filter((s) => s.platform === "instagram")
-        .map(async (s) => [s.id, await instagramPostCodes(s.handle.replace(/^@/, ""))] as const),
+        .map(async (s) => [s.id, await instagramPostCodes(handleOf(s.handle))] as const),
+    ).then((pairs) => Object.fromEntries(pairs)),
+    Promise.all(
+      sources.filter((s) => s.platform === "x").map(async (s) => [s.id, await xPosts(handleOf(s.handle))] as const),
     ).then((pairs) => Object.fromEntries(pairs)),
   ]);
 
@@ -49,6 +55,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
       unread={unread}
       sources={sources}
       instagram={instagram}
+      x={x}
       items={items}
       pageSize={PAGE_SIZE}
     />

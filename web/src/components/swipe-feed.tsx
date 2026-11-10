@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { EmbedCard, InstagramPost } from "@/components/embeds";
+import { EmbedCard, InstagramPost, XPostEmbed } from "@/components/embeds";
 import { OshiAvatar } from "@/components/oshi-avatar";
 import { formatRelative } from "@/components/ui";
 import { loadMore, markSeen } from "@/lib/actions/oshi";
@@ -22,6 +22,8 @@ type Props = {
   sources: Source[];
   // Instagram のアカウントごとの最新の投稿のコード(読めなかったアカウントは空)
   instagram: Record<string, string[]>;
+  // X のアカウントごとの最新の投稿(番号と日時。読めなかったアカウントは空)
+  x: Record<string, { id: string; at: string }[]>;
   items: TimelineItem[];
   pageSize: number;
 };
@@ -33,11 +35,12 @@ const EMBED_EVERY = 3;
 type Slide =
   | { kind: "item"; key: string; item: TimelineItem; from: string }
   | { kind: "embed"; key: string; source: Source; from: string }
-  | { kind: "insta"; key: string; source: Source; from: string; code: string };
+  | { kind: "insta"; key: string; source: Source; from: string; code: string }
+  | { kind: "tweet"; key: string; source: Source; from: string; id: string; at: string };
 
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
-export function SwipeFeed({ oshi, active, unread, sources, instagram, items: initialItems, pageSize }: Props) {
+export function SwipeFeed({ oshi, active, unread, sources, instagram, x, items: initialItems, pageSize }: Props) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [hasMore, setHasMore] = useState(initialItems.length >= pageSize);
@@ -61,17 +64,31 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, items: ini
   // 同じ項目が重なって届いた場合は1枚にする。X・Instagram・TikTok は数件ごとに1枚はさむ
   const slides = useMemo(() => {
     const seen = new Set<string>();
-    const cards: Slide[] = [];
+    const dated: { at: string; slide: Slide }[] = [];
     for (const item of items) {
       if (seen.has(item.item_id)) continue;
       seen.add(item.item_id);
-      cards.push({ kind: "item", key: `i-${item.item_id}`, item, from: fromOf.get(item.source_id) ?? "" });
+      dated.push({ at: item.published_at, slide: { kind: "item", key: `i-${item.item_id}`, item, from: fromOf.get(item.source_id) ?? "" } });
     }
+    // X の投稿は日時があるので、動画・記事と日時の順に混ぜる
+    for (const source of sources.filter((s) => s.platform === "x")) {
+      for (const post of x[source.id] ?? []) {
+        if (seen.has(`x-${post.id}`)) continue;
+        seen.add(`x-${post.id}`);
+        dated.push({
+          at: post.at,
+          slide: { kind: "tweet", key: `t-${post.id}`, source, from: fromOf.get(source.id) ?? "", id: post.id, at: post.at },
+        });
+      }
+    }
+    const cards = dated.sort((a, b) => (a.at < b.at ? 1 : -1)).map((d) => d.slide);
     // Instagram は投稿1件ずつ(読めたとき)。X・TikTok と、投稿を読めなかった Instagram はアカウントの表示
     const embeds: Slide[] = [];
     for (const source of sources.filter((s) => EMBED_PLATFORMS.includes(s.platform))) {
       const from = fromOf.get(source.id) ?? "";
       const codes = source.platform === "instagram" ? (instagram[source.id] ?? []) : [];
+      // 投稿を読めた X は、上で日時の順に混ぜてあるのでアカウントの表示は出さない
+      if (source.platform === "x" && (x[source.id] ?? []).length > 0) continue;
       if (codes.length > 0) {
         for (const code of codes) embeds.push({ kind: "insta", key: `p-${source.id}-${code}`, source, from, code });
       } else {
@@ -86,7 +103,7 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, items: ini
     });
     while (e < embeds.length) result.push(embeds[e++]);
     return result;
-  }, [items, sources, fromOf, instagram]);
+  }, [items, sources, fromOf, instagram, x]);
 
   // 画面に出ている1枚を調べる
   useEffect(() => {
@@ -243,6 +260,8 @@ export function SwipeFeed({ oshi, active, unread, sources, instagram, items: ini
                   muted={muted}
                   onToggleSound={() => setMuted((m) => !m)}
                 />
+              ) : slide.kind === "tweet" ? (
+                <TweetSlide source={slide.source} id={slide.id} at={slide.at} from={slide.from} oshi={active} near={Math.abs(i - current) <= 1} />
               ) : slide.kind === "insta" ? (
                 <InstaSlide source={slide.source} code={slide.code} from={slide.from} oshi={active} near={Math.abs(i - current) <= 1} />
               ) : (
@@ -494,6 +513,24 @@ function InstaSlide({ source, code, from, oshi, near }: { source: Source; code: 
       </div>
       <SideActions oshi={oshi} url={url} title={`${oshi.name}のInstagramの投稿`} />
       <Info platform="Instagram" oshi={oshi} from={from} time="" title={source.handle ? `Instagram ${source.handle}` : undefined} isNew={false} />
+    </>
+  );
+}
+
+// X の投稿1件。前後1枚まで先に読み込んでおく
+function TweetSlide({ source, id, at, from, oshi, near }: {
+  source: Source; id: string; at: string; from: string; oshi: Oshi; near: boolean;
+}) {
+  const handle = source.handle.replace(/^@/, "");
+  const url = `https://x.com/${handle}/status/${id}`;
+  return (
+    <>
+      <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 70% 10%, ${oshi.color}88, #000 70%)` }} />
+      <div className="absolute inset-x-3 top-20 right-20 bottom-32 overflow-hidden rounded-2xl bg-white">
+        {near ? <XPostEmbed id={id} url={url} /> : <div className="flex h-full items-center justify-center text-sm text-black/50">X</div>}
+      </div>
+      <SideActions oshi={oshi} url={url} title={`${oshi.name}のXの投稿`} />
+      <Info platform="X" oshi={oshi} from={from} time={formatRelative(at)} title={`X @${handle}`} isNew={at > oshi.last_seen_at} />
     </>
   );
 }

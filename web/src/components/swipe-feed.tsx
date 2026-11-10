@@ -35,11 +35,11 @@ type Props = {
 
 const EMBED_PLATFORMS: Platform[] = ["x", "instagram", "tiktok"];
 
-// 縦長の動画(ショート・TikTok)の枠。画面の高さいっぱいを使い、縦長の端末では左右を少しだけ(最大12%)はみ出させて
-// 上下の余りを減らす。はみ出しすぎないよう、高さは「幅の16/9倍の1.12倍」までにする。
+// 縦長の動画(ショート・TikTok)の枠。画面に収まる中でいちばん大きく出す(見切れないよう、はみ出させない)
 const VERTICAL_FRAME = {
   aspectRatio: "9 / 16",
-  height: "min(100%, calc(100vw * 16 / 9 * 1.12))",
+  height: "min(100%, calc(100vw * 16 / 9))",
+  maxWidth: "100%",
 } as const;
 // 新着(動画・記事)何件ごとに、X・Instagram・TikTok の画面を1枚はさむか
 const EMBED_EVERY = 3;

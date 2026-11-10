@@ -85,7 +85,7 @@ export function OshiEditor({ oshiId, onDone, section = "all", canSensitive = fal
     startTransition(async () => {
       const result = await deleteOshiRecord(value.id!);
       if (!result.ok) return setError(result.error);
-      onDone("削除しました。今のアプリの「削除された記録を探す」から戻せます");
+      onDone("削除しました");
     });
   };
 

@@ -56,7 +56,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     return (
       <EmptyState
         title="推しがまだ登録されていません"
-        body="今のアプリ(推し活手帳)で推しを登録すると、ここに推しごとの新着が並びます。"
+        body="推しを登録すると、ここに推しごとの新着が並びます。"
         action={
           <Link href="/app/manage" className={buttonClass("primary")}>
             推しの登録を開く

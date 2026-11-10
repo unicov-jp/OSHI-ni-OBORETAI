@@ -36,9 +36,14 @@ const EMBED_PLATFORMS: Platform[] = ["x", "instagram", "tiktok"];
 const EMBED_EVERY = 3;
 
 // 右側のボタン(ミュート・設定・管理)が使う共通の状態
-const Controls = createContext<{ muted: boolean; toggleMute: () => void; isAdmin: boolean }>({
+// activated: 画面をもう触ったか。ブラウザは、一度も触っていないうちは自動再生で音を出させない
+const Controls = createContext<{
+  muted: boolean; toggleMute: () => void; activated: boolean; activate: () => void; isAdmin: boolean;
+}>({
   muted: false,
   toggleMute: () => {},
+  activated: true,
+  activate: () => {},
   isAdmin: false,
 });
 
@@ -203,12 +208,30 @@ export function SwipeFeed({ isAdmin, oshi, active, unread, sources, instagram, x
     }
   };
 
-  const controls = useMemo(() => ({ muted, toggleMute: () => setMuted((m) => !m), isAdmin }), [muted, isAdmin]);
+  const [activated, setActivated] = useState(() =>
+    typeof navigator === "undefined"
+      ? true
+      : ((navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive ?? true),
+  );
+  const controls = useMemo(
+    () => ({
+      muted,
+      // まだ音を出せない状態で押されたら、ミュートにせず音を出す(この操作で音を出せるようになる)
+      toggleMute: () => (activated ? setMuted((m) => !m) : (setActivated(true), setMuted(false))),
+      activated,
+      activate: () => setActivated(true),
+      isAdmin,
+    }),
+    [muted, activated, isAdmin],
+  );
 
   return (
     <Controls.Provider value={controls}>
     <div
       className="fixed inset-0 z-40 bg-black text-white md:top-14 md:z-20"
+      onPointerDown={() => {
+        if (!activated) setActivated(true);
+      }}
       onTouchStart={(event) => {
         const t = event.touches[0];
         touch.current = { x: t.clientX, y: t.clientY };
@@ -366,7 +389,10 @@ const ICON = {
 
 // 右側のボタン(推しのアイコン・開く・共有・ミュート・設定・管理)
 function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: string }) {
-  const { muted, toggleMute, isAdmin } = useContext(Controls);
+  const { muted, toggleMute, activated, isAdmin } = useContext(Controls);
+  // 音の状態はボタンの色で示す: 音あり=白っぽい / ミュート中=ピンク / まだ音を出せない=黄色(押すと音が出る)
+  const blocked = !muted && !activated;
+  const soundTone = muted ? "bg-[#ff2d6f] text-white" : blocked ? "bg-[#ffc531] text-black animate-pulse" : "bg-white/15";
   const [copied, setCopied] = useState(false);
   const share = async () => {
     try {
@@ -397,11 +423,17 @@ function SideActions({ oshi, url, title }: { oshi: Oshi; url: string; title: str
         </span>
         {copied ? "コピー済み" : "共有"}
       </button>
-      <button type="button" onClick={toggleMute} className={item} aria-pressed={muted}>
-        <span className={round}>
-          <Icon d={muted ? ICON.muted : ICON.sound} />
+      <button
+        type="button"
+        onClick={toggleMute}
+        className={item}
+        aria-pressed={muted}
+        aria-label={muted ? "ミュート中(押すと音が出ます)" : blocked ? "音を出す" : "ミュートする"}
+      >
+        <span className={`flex h-11 w-11 items-center justify-center rounded-full backdrop-blur ${soundTone}`}>
+          <Icon d={muted || blocked ? ICON.muted : ICON.sound} />
         </span>
-        {muted ? "ミュート中" : "ミュート"}
+        {muted ? "ミュート中" : blocked ? "音を出す" : "音あり"}
       </button>
       <Link href="/app/settings" className={item}>
         <span className={round}>
@@ -458,10 +490,7 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   const short = isYoutubeShort(item.url);
   const frame = useRef<HTMLIFrameElement>(null);
 
-  // ブラウザは、画面を一度も触っていないうちは自動再生で音を出させない。触ったかどうかを見て案内を変える
-  const [activated, setActivated] = useState(() =>
-    typeof navigator === "undefined" ? true : (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive ?? true,
-  );
+  const { activated, activate } = useContext(Controls);
   const send = useCallback((func: string) => {
     frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args: [] }), "*");
   }, []);
@@ -471,12 +500,12 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   useEffect(() => {
     if (!live || !frame.current) return;
     send(muted ? "mute" : "unMute");
-  }, [muted, live, send]);
+  }, [muted, live, send, activated]);
 
   const tap = () => {
     if (!muted && !activated) {
       // 初めて触ったとき: 音をオンにする(このタップで音を出せるようになる)
-      setActivated(true);
+      activate();
       send("unMute");
       return;
     }
@@ -558,11 +587,6 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
         onClick={tap}
         className="absolute inset-0 z-[5] cursor-pointer"
       />
-      {live && !muted && !activated ? (
-        <span className="pointer-events-none absolute top-20 left-4 z-10 rounded-full bg-black/55 px-3 py-1 text-xs font-bold backdrop-blur">
-          🔇 タップで音を出す
-        </span>
-      ) : null}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
       <SideActions oshi={oshi} url={item.url} title={title} />
       <Info platform={short ? "YouTube ショート" : "YouTube"} oshi={oshi} from={from} time={time} title={title} isNew={isNew} />
@@ -702,9 +726,11 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
   const send = useCallback((type: string) => {
     frame.current?.contentWindow?.postMessage({ "x-tiktok-player": true, type }, "*");
   }, []);
+  const { activated } = useContext(Controls);
+  // 画面を初めて触ったときにも音の設定を送り直す(それまではブラウザの制限で音を出せない)
   useEffect(() => {
     if (live) send(muted ? "mute" : "unMute");
-  }, [muted, live, send]);
+  }, [muted, live, send, activated]);
 
   // ループはプレーヤーの機能に任せると読み直しで途切れるため、終わったらすぐ先頭に戻して再生する
   useEffect(() => {

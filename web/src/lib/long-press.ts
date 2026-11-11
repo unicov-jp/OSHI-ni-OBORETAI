@@ -57,10 +57,17 @@ export function useLongPress(onLongPress: () => void) {
 // 推しのアイコン: タップでその推しの新着、長押しでその推しのSNSの登録
 
 // 押している間だけ何かをする(動画の長押しで倍速など)。0.4秒押し続けたら onStart、指を離したら onEnd。
+// repeat を渡すと、押し始めから repeat.firstMs 後とそれ以降 repeat.everyMs ごとに repeat.onRepeat(回数) を呼ぶ。
 // 押し始めてすぐ指が動いたら(上下のスワイプ)、何もしない。押し続けた後のクリック(タップの動作)は止める
 const HOLD_MS = 400;
-export function useHold(onStart: () => void, onEnd: () => void) {
+export function useHold(
+  onStart: () => void,
+  onEnd: () => void,
+  repeat?: { firstMs: number; everyMs: number; onRepeat: (count: number) => void },
+) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const repeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [count, setCount] = useState(0);
   const start = useRef<{ x: number; y: number } | null>(null);
   const holding = useRef(false);
   const fired = useRef(false);
@@ -68,14 +75,29 @@ export function useHold(onStart: () => void, onEnd: () => void) {
   const stop = () => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
+    if (repeatTimer.current) clearTimeout(repeatTimer.current);
+    repeatTimer.current = null;
     if (holding.current) {
       holding.current = false;
       setActive(false);
+      setCount(0);
       onEnd();
     }
   };
+  const scheduleRepeat = (delay: number, n: number) => {
+    if (!repeat) return;
+    repeatTimer.current = setTimeout(() => {
+      if (!holding.current) return;
+      setCount(n);
+      buzz([20]);
+      repeat.onRepeat(n);
+      scheduleRepeat(repeat.everyMs, n + 1);
+    }, delay);
+  };
   return {
     active,
+    // 押し続けて repeat を呼んだ回数(指を離すと0に戻る)
+    count,
     handlers: {
       onPointerDown: (event: React.PointerEvent) => {
         fired.current = false;
@@ -86,8 +108,10 @@ export function useHold(onStart: () => void, onEnd: () => void) {
           holding.current = true;
           fired.current = true;
           setActive(true);
+          setCount(0);
           buzz([30]);
           onStart();
+          if (repeat) scheduleRepeat(Math.max(0, repeat.firstMs - HOLD_MS), 1);
         }, HOLD_MS);
       },
       onPointerMove: (event: React.PointerEvent) => {

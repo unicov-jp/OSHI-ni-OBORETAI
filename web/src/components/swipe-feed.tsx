@@ -1366,11 +1366,37 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   const send = useCallback((func: string, args: unknown[] = []) => {
     frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args }), "*");
   }, []);
-  // 動画を長押ししている間は2倍速(離すと元の速さに戻す)
+  // 再生位置と長さ(YouTube から届く情報で更新する。長押しで1分ずつ先へ送るのに使う)
+  const playback = useRef<{ at: number; duration: number }>({ at: 0, duration: 0 });
+  // 動画を長押ししている間は2倍速(YouTube で選べるいちばん速い速さ)。離すと元の速さに戻す。
+  // さらに押し続けると、押し始めから1秒で1分先へ、その後も1秒ごとに1分ずつ先へ送る
   const fast = useHold(
     () => send("setPlaybackRate", [2]),
     () => send("setPlaybackRate", [1]),
+    {
+      firstMs: SKIP_FIRST_MS,
+      everyMs: SKIP_EVERY_MS,
+      onRepeat: () => {
+        const { at, duration } = playback.current;
+        const target = at + SKIP_SECONDS;
+        const end = duration > 0 ? Math.max(0, duration - 1) : target;
+        playback.current.at = Math.min(target, end);
+        send("seekTo", [playback.current.at, true]);
+      },
+    },
   );
+  useEffect(() => {
+    if (!live) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow || typeof event.data !== "string") return;
+      const data = safeJson(event.data) as { event?: string; info?: { currentTime?: unknown; duration?: unknown } } | null;
+      if (!data || data.event !== "infoDelivery" || !data.info || typeof data.info !== "object") return;
+      if (typeof data.info.currentTime === "number") playback.current.at = data.info.currentTime;
+      if (typeof data.info.duration === "number") playback.current.duration = data.info.duration;
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [live]);
 
   // 音のオン・オフは YouTube の埋め込みに命令を送って切り替える(画面に出ている1件だけ)。
   // 自動再生を確実に始めるため音なしで読み込み、画面を一度でも触っていれば音をオンにする。
@@ -1511,7 +1537,7 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
         {...(videoId ? fast.handlers : {})}
         className="absolute inset-0 z-[5] cursor-pointer select-none [-webkit-touch-callout:none]"
       />
-      {fast.active ? <FastBadge /> : null}
+      {fast.active ? <FastBadge skipped={fast.count} /> : null}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
       <SideActions
         oshi={oshi}
@@ -1844,11 +1870,16 @@ function TweetSlide({ source, id, at, from, oshi, near, live }: {
 }
 
 // TikTok の動画1本。TikTok 公式の動画プレーヤーを全画面で出す。画面に出ている1本だけ読み込み、自動で再生する。
-// 長押しで倍速にしている間、画面の上に出す印
-function FastBadge() {
+// 動画の長押し: 0.4秒で2倍速、1秒で1分先へ、その後も1秒ごとに1分ずつ先へ
+const SKIP_FIRST_MS = 1000;
+const SKIP_EVERY_MS = 1000;
+const SKIP_SECONDS = 60;
+
+// 長押しで倍速にしている間、画面の上に出す印(先へ送った分も出す)
+function FastBadge({ skipped }: { skipped: number }) {
   return (
     <p className="pointer-events-none absolute top-[calc(var(--bar)+0.5rem)] left-1/2 z-[6] -translate-x-1/2 rounded-full bg-black/60 px-4 py-1.5 text-[13px] font-bold whitespace-nowrap text-white">
-      2倍速 ▶▶
+      2倍速 ▶▶{skipped > 0 ? ` ・ +${skipped}分` : ""}
     </p>
   );
 }
@@ -1863,11 +1894,39 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
   const send = useCallback((type: string, value?: number) => {
     frame.current?.contentWindow?.postMessage({ "x-tiktok-player": true, type, ...(value === undefined ? {} : { value }) }, "*");
   }, []);
-  // 動画を長押ししている間は2倍速(離すと元の速さに戻す)。TikTok のプレーヤーが速さの変更に応じない場合は、表示だけになる
+  // 再生位置と長さ(TikTok のプレーヤーから届く情報で更新する)
+  const playback = useRef<{ at: number; duration: number }>({ at: 0, duration: 0 });
+  // 動画を長押ししている間は2倍速(離すと元の速さに戻す)。TikTok のプレーヤーが速さの変更に応じない場合は、表示だけになる。
+  // さらに押し続けると、押し始めから1秒で1分先へ(動画の終わりより先には送らない)
   const fast = useHold(
     () => send("setPlaybackRate", 2),
     () => send("setPlaybackRate", 1),
+    {
+      firstMs: SKIP_FIRST_MS,
+      everyMs: SKIP_EVERY_MS,
+      onRepeat: () => {
+        const { at, duration } = playback.current;
+        const target = at + SKIP_SECONDS;
+        const end = duration > 0 ? Math.max(0, duration - 1) : target;
+        playback.current.at = Math.min(target, end);
+        send("seekTo", playback.current.at);
+      },
+    },
   );
+  useEffect(() => {
+    if (!live) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow) return;
+      const data = (typeof event.data === "string" ? safeJson(event.data) : event.data) as
+        | { "x-tiktok-player"?: boolean; type?: string; value?: { currentTime?: unknown; duration?: unknown } }
+        | null;
+      if (!data || !data["x-tiktok-player"] || data.type !== "onCurrentTime" || !data.value || typeof data.value !== "object") return;
+      if (typeof data.value.currentTime === "number") playback.current.at = data.value.currentTime;
+      if (typeof data.value.duration === "number") playback.current.duration = data.value.duration;
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [live]);
   const { activated } = useContext(Controls);
   // 画面を初めて触るまでは音なしで再生する(起動直後に音をオンにすると、ブラウザが再生を止めてしまう)。
   // 触ったら音の設定を送り直す
@@ -1934,7 +1993,7 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
         {...fast.handlers}
         className="absolute inset-0 z-[5] cursor-pointer select-none [-webkit-touch-callout:none]"
       />
-      {fast.active ? <FastBadge /> : null}
+      {fast.active ? <FastBadge skipped={fast.count} /> : null}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent" />
       <SideActions oshi={oshi} url={url} title={`${oshi.name}のTikTok`} platform="TikTok" />
       <Info platform="TikTok" oshi={oshi} from={from} time={at ? formatRelative(at) : ""} title={`TikTok @${handle}`} isNew={at ? at > oshi.last_seen_at : false} />

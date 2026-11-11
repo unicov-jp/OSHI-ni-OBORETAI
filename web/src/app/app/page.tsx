@@ -11,7 +11,7 @@ import { getLatestByOshi, getLibrary, getManualPosts, getSavedPosts, getTimeline
 import { instagramPostCodes } from "@/lib/fetchers/instagram";
 import { tiktokVideos } from "@/lib/fetchers/tiktok";
 import { xPosts } from "@/lib/fetchers/x";
-import { fantiaClubId, fantiaPosts, type FantiaPost } from "@/lib/fetchers/fantia";
+import { fantiaClub, fantiaClubId, type FantiaClub } from "@/lib/fetchers/fantia";
 import { getCalendar, getGallery } from "@/lib/memories";
 import { after } from "next/server";
 import { DEMO } from "@/lib/env";
@@ -105,21 +105,21 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     getGallery(active.id),
     getCalendar(active.id),
     getManualPosts(active.id),
-    // Fantia の最新の投稿(タイトル・投稿日だけ)
+    // Fantia のファンクラブ名と最新の投稿(タイトル・投稿日・公開されているサムネイル)
     Promise.all(
       social
         .filter((s) => s.platform === "fantia")
         .map(async (s) => {
           const club = fantiaClubId(s.handle) ?? fantiaClubId(s.url);
-          return [s.id, club ? await fantiaPosts(club) : []] as const;
+          return [s.id, club ? await fantiaClub(club) : { name: "", posts: [] }] as const;
         }),
-    ).then((pairs) => Object.fromEntries(pairs) as Record<string, FantiaPost[]>),
+    ).then((pairs) => Object.fromEntries(pairs) as Record<string, FantiaClub>),
   ]);
   // 読んだ X・Instagram・TikTok の投稿を、画面を返した後で記録する(未読の数と、Instagram の並び順に使う)
   if (!DEMO) {
     const live: { platform: SocialPlatform; handle: string; posts: SocialPost[] }[] = [];
     for (const s of social) {
-      if (s.platform === "fantia") live.push({ platform: "fantia", handle: handleOf(s.handle), posts: (fantia[s.id] ?? []).map((p) => ({ key: `fa:${p.id}`, at: p.at, title: p.title })) });
+      if (s.platform === "fantia") live.push({ platform: "fantia", handle: handleOf(s.handle), posts: (fantia[s.id]?.posts ?? []).map((p) => ({ key: `fa:${p.id}`, at: p.at, title: p.title })) });
       if (s.platform === "x") live.push({ platform: "x", handle: handleOf(s.handle), posts: (x[s.id] ?? []).map((p) => ({ key: `x:${p.id}`, at: p.at })) });
       if (s.platform === "tiktok") live.push({ platform: "tiktok", handle: handleOf(s.handle), posts: (tiktok[s.id] ?? []).map((v) => ({ key: `tt:${v.id}`, at: v.at })) });
       if (s.platform === "instagram") live.push({ platform: "instagram", handle: handleOf(s.handle), posts: (instagram[s.id] ?? []).map((code: string) => ({ key: `ig:${code}`, at: null })) });

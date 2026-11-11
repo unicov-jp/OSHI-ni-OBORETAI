@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { parseAccountUrl } from "@/lib/platforms";
-import { postsFromFantia } from "@/lib/fetchers/fantia";
+import { clubNameFromFantia, postsFromFantia } from "@/lib/fetchers/fantia";
 import { safeFetchText } from "@/lib/fetchers/safe-fetch";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,7 +34,7 @@ type Probe = {
   jsonKeys?: string[];
   jsonPreview?: string;
   // Fantia: アプリが実際に読み取る投稿(先頭3件)と件数
-  parsedPosts?: { count: number; samples: { id: string; title: string; at: string | null }[] };
+  parsedPosts?: { clubName: string; count: number; samples: { id: string; title: string; at: string | null; thumb: string | null }[] };
 };
 
 // 調べるURLの候補(公開ページと、サイトが画面を作るのに使っている読み取り用の窓口)
@@ -86,7 +86,7 @@ async function probe(label: string, url: string, postPattern: RegExp): Promise<P
         result.jsonKeys = Object.keys(data).slice(0, 20);
         if (url.startsWith("https://fantia.jp/api/")) {
           const posts = postsFromFantia(data);
-          result.parsedPosts = { count: posts.length, samples: posts.slice(0, 3) };
+          result.parsedPosts = { clubName: clubNameFromFantia(data), count: posts.length, samples: posts.slice(0, 3) };
         }
       } catch {
         // JSON として読めなかった

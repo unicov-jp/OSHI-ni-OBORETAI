@@ -16,7 +16,7 @@ const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' https://platform.twitter.com${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://i.ytimg.com https://*.twimg.com https://platform.twitter.com https://syndication.twitter.com",
+  "img-src 'self' data: blob: https://i.ytimg.com https://*.twimg.com https://platform.twitter.com https://syndication.twitter.com https://*.fantia.jp",
   "font-src 'self' data:",
   `connect-src 'self' ${supabaseOrigins()}${isDev ? " ws:" : ""}`,
   "frame-src https://www.youtube-nocookie.com https://www.tiktok.com https://www.instagram.com https://platform.twitter.com https://syndication.twitter.com",

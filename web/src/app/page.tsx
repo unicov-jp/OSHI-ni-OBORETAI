@@ -17,16 +17,28 @@ const LIGHTS = HEIGHTS.map((height, index) => ({ id: index, height, color: COLOR
 
 const POINTS = [
   {
-    title: "推しの投稿をスワイプで",
-    body: "YouTube・X・Instagram・TikTok の投稿を、推しごとに1本の流れにまとめます。上下のスワイプで次々に見られます。",
+    title: "未読がひと目でわかる",
+    body: "上に並ぶ推しのアイコンの数字は、まだ見ていない投稿の件数。見た投稿から減っていきます。",
   },
   {
-    title: "ギャラリーとカレンダー",
-    body: "左右のスワイプで、推しの写真・チェキのギャラリーと、LIVE・チェキのカレンダーに切り替わります。",
+    title: "SNSはURLを貼るだけ",
+    body: "YouTube・Blog・X・Instagram・TikTok・Threads のURLを貼ると、どのSNSかを見分けて自動で振り分けます。個人とグループのSNSを分けて登録できます。",
+  },
+  {
+    title: "推しごとのBGM",
+    body: "ギャラリーとカレンダーを開いている間、推しごとに登録した YouTube の曲や再生リストが流れます。",
+  },
+  {
+    title: "LIVE・チェキの記録",
+    body: "LIVE の予定とチェキをカレンダーに。ポスター、現地の地図、チケット、配信のリンクもまとめて残せます。",
+  },
+  {
+    title: "過去の動画も推しの流れに",
+    body: "お気に入りの過去の YouTube 動画を URL で追加すると、その推しの投稿の先頭に並びます。",
   },
   {
     title: "写真はあなたのGoogleドライブに",
-    body: "ギャラリーやチェキの写真は、Googleアカウントに紐づくGoogleドライブに保存します。",
+    body: "ギャラリー・チェキ・LIVE のポスターの写真は、Google アカウントに紐づく Google ドライブ(「推しに溺れたいapp」フォルダ)に保存します。",
   },
 ];
 
@@ -74,7 +86,7 @@ export default function LandingPage() {
           <div className="flex flex-1 flex-col justify-center pb-[34dvh]">
             <h1 className="font-display text-[clamp(40px,9vw,88px)] leading-[1.1] tracking-wide">推しに溺れたい</h1>
             <p className="mt-6 max-w-[34em] text-[17px] leading-8 text-muted">
-              推しのSNSの投稿を、推しごとにまとめてスワイプで。あちこちのアプリを行き来する時間を、推しを見る時間に。
+              推しのSNSの投稿を、推しごとにまとめてスワイプで。未読の件数、写真とチェキ、LIVE の記録、推しの BGM まで、ひとつのアプリに。
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href={start} className={buttonClass("primary", "md", "h-12 px-6 text-[15px]")}>
@@ -94,7 +106,7 @@ export default function LandingPage() {
 
         <section className="grid gap-5 py-[18dvh] md:grid-cols-3">
           {POINTS.map((point, index) => (
-            <Reveal key={point.title} delay={index * 120}>
+            <Reveal key={point.title} delay={(index % 3) * 120}>
               <div className="glass h-full rounded-2xl border border-line p-6">
                 <h2 className="text-base leading-6 font-bold">{point.title}</h2>
                 <p className="mt-3 text-sm leading-7 text-muted">{point.body}</p>
@@ -109,7 +121,7 @@ export default function LandingPage() {
               深いところまで、どうぞ
             </h2>
             <p className="mt-5 max-w-[32em] text-[15px] leading-7 text-muted">
-              登録はGoogleアカウントだけ。推しの名前と色を決めて、SNSのURLを貼れば始められます。
+              登録はGoogleアカウントだけ。推しの名前と色を決めて、SNSのURLを貼れば始められます。推し3人までは無料です。
             </p>
             <Link href={start} className={buttonClass("primary", "md", "mt-8 h-12 px-6 text-[15px]")}>
               {startLabel}

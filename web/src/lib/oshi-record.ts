@@ -1,3 +1,4 @@
+import { parseBgm } from "@/lib/platforms";
 // 推しの記録(oshikatsu_records の kind = 'oshi')を、今のアプリ(推し活手帳)と同じ形で作る・直すための部品。
 // 新しいアプリと今のアプリのどちらで登録・編集しても、同じ1行を読み書きする(同期で互いに反映される)。
 
@@ -49,6 +50,8 @@ export type OshiEditable = {
   groups: GroupInput[];
   // Sensitive として登録する推しか
   sensitive: boolean;
+  // ギャラリー・カレンダーで流す曲(YouTube の動画か再生リストのURL)
+  bgm: string;
 };
 
 export const emptySns = (): SnsInput => ({
@@ -111,6 +114,7 @@ export function editableFrom(id: string, data: Raw): OshiEditable {
     person,
     groups,
     sensitive: data.sensitive === true,
+    bgm: str(data.bgm),
   };
 }
 
@@ -148,6 +152,7 @@ export function mergeIntoRecord(current: Raw | null, input: OshiEditable, extra:
     birthDay: input.birthDay,
     birthYear: input.birthYear,
     sensitive: input.sensitive === true,
+    bgm: parseBgm(input.bgm)?.url ?? "",
     groups,
     // 古い形式(group 1つ)の項目は、グループを消したときに復活しないよう空にする
     group: "",

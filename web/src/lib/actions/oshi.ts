@@ -8,6 +8,7 @@ import { DEMO } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { editableFrom, mergeIntoRecord, SNS_KEYS, type OshiEditable, type SnsKey } from "@/lib/oshi-record";
 import { canUseAdvanced } from "@/lib/plans";
+import { parseBgm } from "@/lib/platforms";
 import type { ActionResult, Platform, TimelineItem } from "@/lib/types";
 
 // 推しの id は今のアプリの記録(oshikatsu_records)の id。uuid とは限らない。
@@ -29,6 +30,7 @@ const editSchema = z.object({
   person: sns,
   groups: z.array(z.object({ id: z.string().max(100).optional(), name: z.string().max(40, "グループ名は40文字までです"), sns })).max(10),
   sensitive: z.boolean().default(false),
+  bgm: z.string().trim().max(500).default(""),
 });
 
 // 編集画面に出す値(写真やギャラリーなど、ここで触らない項目は返さない)
@@ -54,6 +56,9 @@ export async function saveOshiRecord(input: OshiEditable): Promise<ActionResult<
   const parsed = editSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "入力内容を確認してください" };
   const value = parsed.data as OshiEditable;
+  if (value.bgm && !parseBgm(value.bgm)) {
+    return { ok: false, error: "BGM は YouTube の動画か再生リストのURLを入力してください" };
+  }
 
   const supabase = await createClient();
   const { data: rows, error: listError } = await supabase
@@ -163,5 +168,31 @@ export async function removeOshiPhoto(id: string): Promise<ActionResult> {
     .eq("id", id);
   if (error) return { ok: false, error: "保存できませんでした。時間をおいてもう一度お試しください。" };
   revalidatePath("/app", "layout");
+  return { ok: true };
+}
+
+// 新着の画面で表示した投稿(YouTube・Blog)を既読にする。上部の推しのアイコンの数字(未読の件数)が減る
+export async function markItemsRead(itemIds: string[]): Promise<ActionResult> {
+  if (DEMO) return { ok: true };
+  const viewer = await requireViewer();
+  const ids = z.array(z.string().uuid()).max(100).safeParse(itemIds);
+  if (!ids.success || ids.data.length === 0) return { ok: true };
+  const supabase = await createClient();
+  await supabase
+    .from("oshikatsu_item_reads")
+    .upsert(ids.data.map((id) => ({ user_id: viewer.id, item_id: id })), { onConflict: "user_id,item_id", ignoreDuplicates: true });
+  return { ok: true };
+}
+
+// X・Instagram・TikTok の投稿を表示したら既読にする(post_key は x:<番号> / ig:<コード> / tt:<番号>)
+export async function markPostsRead(keys: string[]): Promise<ActionResult> {
+  if (DEMO) return { ok: true };
+  const viewer = await requireViewer();
+  const parsed = z.array(z.string().regex(/^(x|ig|tt):[A-Za-z0-9_-]{1,64}$/)).max(100).safeParse(keys);
+  if (!parsed.success || parsed.data.length === 0) return { ok: true };
+  const supabase = await createClient();
+  await supabase
+    .from("oshikatsu_post_reads")
+    .upsert(parsed.data.map((key) => ({ user_id: viewer.id, post_key: key })), { onConflict: "user_id,post_key", ignoreDuplicates: true });
   return { ok: true };
 }

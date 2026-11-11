@@ -51,6 +51,8 @@ export async function resolveYoutubeHandle(
 // APIキーがあれば公式API(1回1ユニット)、なければチャンネルの公開フィードを使う。
 export async function fetchYoutubeChannel(channelId: string, admin: SupabaseClient): Promise<ParsedFeed> {
   if (!apiKey()) return fetchYoutubeViaFeed(channelId);
+  // 公式APIの1日の上限(既定1万ユニット)の9割を使ったら、その日は公開フィードに切り替える
+  if (await nearQuota(admin)) return fetchYoutubeViaFeed(channelId);
 
   const uploads = `UU${channelId.slice(2)}`;
   const data = (await callApi("playlistItems", {
@@ -130,4 +132,16 @@ async function resolveYoutubeHandleViaPage(handle: string): Promise<{ channelId:
     headers: { "accept-language": "ja,en;q=0.8", accept: "text/html" },
   });
   return channelFromPage(page.text);
+}
+
+// 今日(太平洋時間の日付。YouTube の上限はこの日付で数える)の公式APIの使用量が上限の9割を超えたか。1分ごとに読み直す
+const QUOTA = Number(process.env.YOUTUBE_DAILY_QUOTA ?? 10000);
+let quotaCheck: { at: number; near: boolean } | null = null;
+async function nearQuota(admin: SupabaseClient): Promise<boolean> {
+  if (quotaCheck && Date.now() - quotaCheck.at < 60_000) return quotaCheck.near;
+  const day = new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+  const { data } = await admin.from("oshikatsu_api_usage").select("units").eq("day", day).eq("provider", "youtube").maybeSingle();
+  const used = Number((data as { units?: number } | null)?.units ?? 0);
+  quotaCheck = { at: Date.now(), near: used >= QUOTA * 0.9 };
+  return quotaCheck.near;
 }

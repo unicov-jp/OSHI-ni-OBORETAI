@@ -286,7 +286,7 @@ function ImportAll({ oshi, sources, disabled }: { oshi: Oshi[]; sources: Source[
         if (remaining === 0 || data.added + data.linked === 0) break;
       }
       if (added + linked === 0 && failed.length === 0 && remaining === 0) return;
-      const parts = [`今のアプリのSNSを${added + linked}件取り込みました`];
+      const parts = [`推しのSNSを${added + linked}件、新着の取得先に登録しました`];
       if (linked > 0) parts.push(`(うち${linked}件は新着を取れないためリンクとして保存)`);
       if (failed.length > 0) parts.push(`。${failed.length}件は取り込めませんでした`);
       if (remaining > 0) parts.push(`。残り${remaining}件は、時間をおいて「取り込む」を押してください`);
@@ -320,13 +320,13 @@ function ImportAll({ oshi, sources, disabled }: { oshi: Oshi[]; sources: Source[
     <section className="mt-3 rounded-xl border border-line bg-surface p-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-semibold">今のアプリのSNS</p>
+          <p className="text-[15px] font-semibold">新着の取得先への登録</p>
           <p className="text-[13px] text-muted">
             {pending
-              ? "今のアプリで推しに登録してあるSNSを読み取っています。しばらくお待ちください。"
+              ? "推しに登録してあるSNSを読み取っています。しばらくお待ちください。"
               : count > 0
-                ? `まだ取り込まれていないSNSが${count}件あります。`
-                : "今のアプリのSNSはすべて取り込み済みです。"}
+                ? `新着の取得先にまだ登録されていないSNSが${count}件あります。`
+                : "推しのSNSはすべて新着の取得先に登録済みです。"}
           </p>
         </div>
         {count > 0 && !pending ? (

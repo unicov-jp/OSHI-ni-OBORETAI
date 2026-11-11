@@ -7,7 +7,7 @@ import { DEMO } from "@/lib/env";
 import { recordsToLibrary, type OshiRecord } from "@/lib/records";
 import { createClient } from "@/lib/supabase/server";
 import type {
-  AdminFeed, AdminStats, AdminUser, AuditLog, Category, FetchLog, Oshi, Platform, Source, TimelineItem,
+  AdminFeed, AdminStats, AdminUser, AuditLog, Category, FetchLog, ManualPost, Oshi, Platform, SavedPost, Source, TimelineItem,
 } from "@/lib/types";
 
 export const PAGE_SIZE = 48;
@@ -53,7 +53,11 @@ export async function getTimeline(options: {
       .filter((item) => options.oshiIds.includes(item.oshi_id))
       .filter((item) => !options.platform || item.platform === options.platform)
       .filter((item) => !options.before || item.published_at < options.before)
-      .slice(0, PAGE_SIZE);
+      .slice(0, PAGE_SIZE)
+      .map((item) => {
+        const oshi = demoOshi.find((o) => o.id === item.oshi_id);
+        return { ...item, read: !(oshi && item.published_at > oshi.last_seen_at) };
+      });
   }
 
   const supabase = await createClient();
@@ -68,7 +72,17 @@ export async function getTimeline(options: {
 
   const { data, error } = await query;
   if (error) throw new Error(`新着を読み込めませんでした: ${error.message}`);
-  return (data ?? []) as TimelineItem[];
+  const items = (data ?? []) as TimelineItem[];
+  // もう表示した投稿かどうかを付ける(未読の数と「NEW」の表示に使う)
+  if (items.length > 0) {
+    const { data: reads } = await supabase
+      .from("oshikatsu_item_reads")
+      .select("item_id")
+      .in("item_id", items.map((item) => item.item_id));
+    const read = new Set(((reads ?? []) as { item_id: string }[]).map((r) => r.item_id));
+    for (const item of items) item.read = read.has(item.item_id);
+  }
+  return items;
 }
 
 // 推しごとの、いちばん新しい新着(YouTube・Blog)の日時。上部の推しのアイコンを新着が届いた順に並べるのに使う
@@ -198,4 +212,29 @@ export async function getAuditLogs(): Promise<AuditLog[]> {
     detail: row.detail as string,
     created_at: row.created_at as string,
   }));
+}
+
+// 保存した投稿(Developer だけ)。新しく保存した順
+export async function getSavedPosts(limit = 500): Promise<SavedPost[]> {
+  if (DEMO) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("oshikatsu_saved_posts")
+    .select("url, oshi_id, platform, title, thumbnail_url, published_at, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  return (data ?? []) as SavedPost[];
+}
+
+// 個別に追加した投稿(推しのメニューの「個別投稿の更新」)。新しく追加した順
+export async function getManualPosts(oshiId: string): Promise<ManualPost[]> {
+  if (DEMO) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("oshikatsu_manual_posts")
+    .select("id, oshi_id, platform, url, title, thumbnail_url, created_at")
+    .eq("oshi_id", oshiId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  return (data ?? []) as ManualPost[];
 }

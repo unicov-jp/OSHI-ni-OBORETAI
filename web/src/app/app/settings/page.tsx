@@ -97,6 +97,15 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </div>
       </Section>
 
+      {/* 保存した投稿(Developer だけ。新着の画面の反応ボタンの短押しで保存したもの) */}
+      {viewer.plan === "master" ? (
+        <Section title="Saved">
+          <Link href="/app/saved" className="flex h-10 w-full items-center justify-center rounded-lg border border-line px-2 text-[13px] font-bold hover:bg-sunken">
+            保存した投稿
+          </Link>
+        </Section>
+      ) : null}
+
       {/* ログアウトは画面のいちばん下に、赤で出す */}
       <form action="/auth/signout" method="post">
         <button

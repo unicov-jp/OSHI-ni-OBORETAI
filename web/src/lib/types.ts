@@ -29,6 +29,8 @@ export type Oshi = {
   sns: { platform: Platform; url: string; from: string }[];
   // Sensitive として登録した推し(Sensitive プランで切り替えて見る)
   sensitive: boolean;
+  // ギャラリー・カレンダーで流す曲(YouTube の動画か再生リストのURL)。未登録なら null
+  bgm?: string | null;
 };
 
 export type Source = {
@@ -51,6 +53,8 @@ export type TimelineItem = {
   url: string;
   thumbnail_url: string | null;
   published_at: string;
+  // もう表示した投稿か(未読の数え方に使う)。分からないときは undefined
+  read?: boolean;
 };
 
 export type Viewer = {
@@ -169,4 +173,36 @@ export type CalendarEntry = {
     // ポスター(LIVEの写真の1枚目。無ければ空)
     poster: string;
   };
+};
+
+// 保存した投稿(Developer が反応ボタンの短押しで保存する。期間無制限で残る)
+export type SavedPost = {
+  url: string;
+  oshi_id: string;
+  platform: string;
+  title: string;
+  thumbnail_url: string | null;
+  published_at: string | null;
+  created_at: string;
+};
+
+// 保存するときに画面から渡す中身
+export type SavePostInput = {
+  url: string;
+  oshiId: string;
+  platform: string;
+  title: string;
+  thumbnailUrl?: string | null;
+  publishedAt?: string | null;
+};
+
+// 個別に追加した投稿(推しのメニューの「個別投稿の更新」)
+export type ManualPost = {
+  id: string;
+  oshi_id: string;
+  platform: "youtube";
+  url: string;
+  title: string;
+  thumbnail_url: string | null;
+  created_at: string;
 };

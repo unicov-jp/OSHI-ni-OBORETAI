@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { TimelineItem } from "@/lib/types";
 import Link from "next/link";
 import { BackToNormal } from "@/components/mode-switch";
 import { SwipeFeed, type FeedView } from "@/components/swipe-feed";
@@ -6,11 +7,16 @@ import { getFeedMode, oshiInMode } from "@/lib/feed-mode";
 import { canUseAdvanced } from "@/lib/plans";
 import { EmptyState, buttonClass } from "@/components/ui";
 import { requireViewer } from "@/lib/auth";
-import { getLatestByOshi, getLibrary, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
+import { getLatestByOshi, getLibrary, getManualPosts, getSavedPosts, getTimeline, getUnreadCounts, PAGE_SIZE } from "@/lib/data";
 import { instagramPostCodes } from "@/lib/fetchers/instagram";
 import { tiktokVideos } from "@/lib/fetchers/tiktok";
 import { xPosts } from "@/lib/fetchers/x";
 import { getCalendar, getGallery } from "@/lib/memories";
+import { after } from "next/server";
+import { DEMO } from "@/lib/env";
+import { recordLiveSocial, type SocialPlatform, type SocialPost } from "@/lib/fetchers/social";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "投稿" };
 
@@ -56,7 +62,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     return (
       <EmptyState
         title="推しがまだ登録されていません"
-        body="今のアプリ(推し活手帳)で推しを登録すると、ここに推しごとの新着が並びます。"
+        body="推しを登録すると、ここに推しごとの新着が並びます。"
         action={
           <Link href="/app/manage" className={buttonClass("primary")}>
             推しの登録を開く
@@ -80,7 +86,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
   // Instagram・X・TikTok は投稿1件ずつ見せるため、最新の投稿を読む(読めなければアカウントの表示)
   // 新着・ギャラリー・カレンダーの中身をまとめて読む(左右のスワイプはサーバーを待たずにその場で切り替える)
   const social = sources;
-  const [items, instagram, x, tiktok, gallery, calendar] = await Promise.all([
+  const [items, instagram, x, tiktok, gallery, calendar, manual] = await Promise.all([
     getTimeline({ oshiIds: [active.id] }),
     Promise.all(
       social
@@ -97,7 +103,49 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     ).then((pairs) => Object.fromEntries(pairs)),
     getGallery(active.id),
     getCalendar(active.id),
+    getManualPosts(active.id),
   ]);
+  // 読んだ X・Instagram・TikTok の投稿を、画面を返した後で記録する(未読の数と、Instagram の並び順に使う)
+  if (!DEMO) {
+    const live: { platform: SocialPlatform; handle: string; posts: SocialPost[] }[] = [];
+    for (const s of social) {
+      if (s.platform === "x") live.push({ platform: "x", handle: handleOf(s.handle), posts: (x[s.id] ?? []).map((p) => ({ key: `x:${p.id}`, at: p.at })) });
+      if (s.platform === "tiktok") live.push({ platform: "tiktok", handle: handleOf(s.handle), posts: (tiktok[s.id] ?? []).map((v) => ({ key: `tt:${v.id}`, at: v.at })) });
+      if (s.platform === "instagram") live.push({ platform: "instagram", handle: handleOf(s.handle), posts: (instagram[s.id] ?? []).map((code: string) => ({ key: `ig:${code}`, at: null })) });
+    }
+    after(async () => {
+      const admin = createAdminClient();
+      for (const entry of live) await recordLiveSocial(admin, entry.platform, entry.handle, entry.posts).catch(() => {});
+    });
+  }
+  // Instagram の投稿を見つけた時刻(登録前からの投稿は除く)。この時刻で日時の順に混ぜる
+  const instagramAt: Record<string, string> = {};
+  const instaHandles = social.filter((s) => s.platform === "instagram").map((s) => handleOf(s.handle).toLowerCase());
+  if (!DEMO && instaHandles.length > 0) {
+    const supabase = await createClient();
+    const { data: seenRows } = await supabase
+      .from("oshikatsu_social_posts")
+      .select("post_key, first_seen_at, baseline")
+      .eq("platform", "instagram")
+      .in("handle", instaHandles);
+    for (const row of (seenRows ?? []) as { post_key: string; first_seen_at: string; baseline: boolean }[]) {
+      if (!row.baseline) instagramAt[row.post_key.slice(3)] = row.first_seen_at;
+    }
+  }
+  // 個別に追加した投稿(推しのメニューの「個別投稿の更新」)は、フィードの先頭に並べる
+  const pinned: TimelineItem[] = manual.map((post) => ({
+    item_id: `m-${post.id}`,
+    oshi_id: post.oshi_id,
+    source_id: "",
+    platform: post.platform,
+    title: post.title,
+    url: post.url,
+    thumbnail_url: post.thumbnail_url,
+    published_at: post.created_at,
+    read: true,
+  }));
+  // 保存した投稿(Developer だけ。反応ボタンの短押しで保存・解除する)
+  const savedUrls = viewer.plan === "master" ? (await getSavedPosts()).map((p) => p.url) : [];
 
   return (
     <SwipeFeed
@@ -119,6 +167,9 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
       view={view}
       gallery={gallery}
       calendar={calendar}
+      savedUrls={savedUrls}
+      pinned={pinned}
+      instagramAt={instagramAt}
     />
   );
 }

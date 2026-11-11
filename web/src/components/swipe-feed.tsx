@@ -10,14 +10,16 @@ import { EmbedCard, InstagramPost, XPostEmbed } from "@/components/embeds";
 import { CalendarBody, GalleryBody } from "@/components/memories";
 import { OshiAvatar } from "@/components/oshi-avatar";
 import { formatRelative } from "@/components/ui";
-import { loadMore, markSeen } from "@/lib/actions/oshi";
+import { loadMore, markItemsRead, markPostsRead, markSeen } from "@/lib/actions/oshi";
 import { toggleFeedMode } from "@/lib/actions/mode";
 import { importAllSns } from "@/lib/actions/sources";
-import { isYoutubeShort, PLATFORM_LABEL, youtubeVideoId } from "@/lib/platforms";
+import { bgmEmbedUrl, isYoutubeShort, parseBgm, PLATFORM_LABEL, youtubeVideoId, type Bgm } from "@/lib/platforms";
 import { buzz } from "@/lib/haptic";
-import { useLongPress } from "@/lib/long-press";
+import { useHold, useLongPress } from "@/lib/long-press";
 import { decodeEntities, hostOf } from "@/lib/text";
-import type { CalendarEntry, GalleryPhoto, Oshi, Platform, Source, TimelineItem } from "@/lib/types";
+import { addManualPost, listManualPosts, removeManualPost } from "@/lib/actions/manual-posts";
+import { toggleSavedPost } from "@/lib/actions/saved";
+import type { CalendarEntry, GalleryPhoto, ManualPost, Oshi, Platform, SavePostInput, Source, TimelineItem } from "@/lib/types";
 
 // TikTok 風の新着。推しを1人選び、その推しと所属グループの新着(動画・記事・X・Instagram・TikTok)を
 // 1本の流れにして、上下のスワイプで1件ずつ見る。
@@ -35,6 +37,8 @@ type Props = {
   sources: Source[];
   // Instagram のアカウントごとの最新の投稿のコード(読めなかったアカウントは空)
   instagram: Record<string, string[]>;
+  // Instagram の投稿を見つけた時刻(投稿のコード → 時刻)。投稿日時の代わりに、この時刻で X・YouTube などと日時の順に混ぜる
+  instagramAt: Record<string, string>;
   // X のアカウントごとの最新の投稿(番号と日時。読めなかったアカウントは空)
   x: Record<string, { id: string; at: string }[]>;
   // TikTok のアカウントごとの最新の動画(番号と日時。日時は読めないこともある)
@@ -47,6 +51,10 @@ type Props = {
   view: FeedView;
   gallery: GalleryPhoto[];
   calendar: CalendarEntry[];
+  // 保存した投稿のURL(Developer だけ。反応ボタンの短押しで保存・解除する)
+  savedUrls: string[];
+  // 個別に追加した投稿(推しのメニューの「個別投稿の更新」)。フィードの先頭に並べる
+  pinned: TimelineItem[];
 };
 
 export type FeedView = "feed" | "gallery" | "calendar";
@@ -67,6 +75,9 @@ const VERTICAL_FRAME = {
   height: "min(100%, calc(100vw * 16 / 9))",
   maxWidth: "100%",
 } as const;
+// X・Instagram・TikTok の未読(推しごとの投稿の番号)。推しを切り替えても数分は同じ結果を使う
+let socialCache: { keys: Record<string, string[]>; at: number } | null = null;
+
 // 新着(動画・記事)何件ごとに、X・Instagram・TikTok の画面を1枚はさむか
 const EMBED_EVERY = 3;
 
@@ -134,6 +145,8 @@ function subscribeActivation(notify: () => void): () => void {
 const Controls = createContext<{
   muted: boolean; toggleMute: () => boolean; activated: boolean; activate: () => void; isAdmin: boolean;
   mode: "normal" | "sensitive"; canSensitive: boolean;
+  // 保存した投稿(Developer だけ)。toggleSave は保存したら true、外したら false、失敗したらエラーの文
+  saved: Set<string>; toggleSave: (post: SavePostInput) => Promise<boolean | string>;
 }>({
   muted: false,
   toggleMute: () => false,
@@ -142,6 +155,8 @@ const Controls = createContext<{
   isAdmin: false,
   mode: "normal",
   canSensitive: false,
+  saved: new Set(),
+  toggleSave: async () => "保存できません",
 });
 
 type Slide =
@@ -155,8 +170,30 @@ type Slide =
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
 export function SwipeFeed({
-  isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, view: initialView, gallery, calendar,
+  isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, instagramAt, view: initialView, gallery, calendar, savedUrls, pinned,
 }: Props) {
+  const [saved, setSaved] = useState(() => new Set(savedUrls));
+  // 推しの BGM(ギャラリー・カレンダーで流す)。たたんだかどうかは端末に覚える(たたむと止まる)
+  const bgm = useMemo(() => (active.bgm ? parseBgm(active.bgm) : null), [active.bgm]);
+  // ギャラリーでは開いておく(たたんだら次からもたたんでおく)。カレンダーは開くたびにたたんだ状態から始める
+  const galleryBgmOpen = () => {
+    try {
+      return typeof window === "undefined" || window.localStorage.getItem("oshi-bgm-closed") !== "1";
+    } catch {
+      return true;
+    }
+  };
+  const [bgmOpen, setBgmOpen] = useState(() => (initialView === "calendar" ? false : galleryBgmOpen()));
+  const toggleBgm = () => {
+    const next = !bgmOpen;
+    setBgmOpen(next);
+    if (view !== "gallery") return;
+    try {
+      window.localStorage.setItem("oshi-bgm-closed", next ? "0" : "1");
+    } catch {
+      // 覚えられない環境でもそのまま切り替える
+    }
+  };
   const [view, setView] = useState<FeedView>(initialView);
   // 切り替えた向き(画面を横から滑り込ませる向き)
   const [enter, setEnter] = useState<"left" | "right" | null>(null);
@@ -304,22 +341,42 @@ export function SwipeFeed({
         else undated.push(slide);
       }
     }
+    // Instagram: 見つけた時刻が分かる投稿は、その時刻で日時の順に混ぜる
+    const instaDated = new Set<string>();
+    for (const source of sources.filter((s) => s.platform === "instagram")) {
+      for (const code of instagram[source.id] ?? []) {
+        const at = instagramAt[code];
+        if (!at || seen.has(`ig-${code}`)) continue;
+        seen.add(`ig-${code}`);
+        instaDated.add(code);
+        dated.push({ at, slide: { kind: "insta", key: `p-${source.id}-${code}`, source, from: fromOf.get(source.id) ?? "", code } });
+      }
+    }
     const cards = dated.sort((a, b) => (a.at < b.at ? 1 : -1)).map((d) => d.slide);
     // Instagram は投稿1件ずつ(読めたとき)。X・TikTok と、投稿を読めなかった Instagram はアカウントの表示
     const embeds: Slide[] = [...undated];
     for (const source of sources.filter((s) => EMBED_PLATFORMS.includes(s.platform))) {
       const from = fromOf.get(source.id) ?? "";
-      const codes = source.platform === "instagram" ? (instagram[source.id] ?? []) : [];
+      const all = source.platform === "instagram" ? (instagram[source.id] ?? []) : [];
+      const codes = all.filter((code) => !instaDated.has(code));
       // 投稿を読めた X は、上で日時の順に混ぜてあるのでアカウントの表示は出さない
       if (source.platform === "x" && (x[source.id] ?? []).length > 0) continue;
       if (source.platform === "tiktok" && (tiktok[source.id] ?? []).length > 0) continue;
       if (codes.length > 0) {
         for (const code of codes) embeds.push({ kind: "insta", key: `p-${source.id}-${code}`, source, from, code });
+      } else if (all.length > 0) {
+        // すべて日時の順に混ぜた
       } else {
         embeds.push({ kind: "embed", key: `e-${source.id}`, source, from });
       }
     }
     const result: Slide[] = [];
+    // 個別に追加した投稿は先頭に(新しく追加した順)
+    for (const item of pinned) {
+      if (seen.has(item.item_id)) continue;
+      seen.add(item.item_id);
+      result.push({ kind: "item", key: `i-${item.item_id}`, item, from: "追加した投稿" });
+    }
     let e = 0;
     cards.forEach((card, index) => {
       result.push(card);
@@ -331,7 +388,7 @@ export function SwipeFeed({
       result.push({ kind: "link", key: `l-${source.id}`, source, from: fromOf.get(source.id) ?? "" });
     }
     return result;
-  }, [items, sources, fromOf, instagram, x, tiktok]);
+  }, [items, sources, fromOf, instagram, instagramAt, x, tiktok, pinned]);
 
   // 画面に出ている1枚を調べる
   useEffect(() => {
@@ -363,13 +420,96 @@ export function SwipeFeed({
     });
   }, [current, slides.length, hasMore, pending, items, active.id, pageSize]);
 
-  // しばらく見たら既読にする
-  const unreadCount = unread[active.id] ?? 0;
+  // しばらく見たら、この推しを開いた時刻を記録する(X・TikTok の「NEW」の基準)
   useEffect(() => {
-    if (unreadCount === 0) return;
     const timer = setTimeout(() => void markSeen([active.id]), 1500);
     return () => clearTimeout(timer);
-  }, [active.id, unreadCount]);
+  }, [active.id]);
+
+  // 未読の件数(上部の推しのアイコンの数字)。新着(YouTube・Blog)を1件表示するごとに既読にして1つ減らす。
+  // サーバーから新しい数が届いたら、この画面で減らした分はそこに含まれているので数え直す
+  const [prevUnread, setPrevUnread] = useState(unread);
+  const [localRead, setLocalRead] = useState<Record<string, number>>({});
+  if (prevUnread !== unread) {
+    setPrevUnread(unread);
+    setLocalRead({});
+  }
+  // X・Instagram・TikTok の未読(投稿の番号)。開いたときに裏で全推し分を読む(数分は前の結果を使う)
+  const [social, setSocial] = useState<Record<string, string[]>>(() => socialCache?.keys ?? {});
+  useEffect(() => {
+    if (socialCache && Date.now() - socialCache.at < 3 * 60 * 1000) return;
+    let alive = true;
+    void fetch("/api/unread-social", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<{ keys?: Record<string, string[]> }>) : null))
+      .then((data) => {
+        if (!data?.keys) return;
+        socialCache = { keys: data.keys, at: Date.now() };
+        if (alive) setSocial(data.keys);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const unreadOf = (id: string) => Math.max(0, (unread[id] ?? 0) - (localRead[id] ?? 0)) + (social[id]?.length ?? 0);
+  const postQueue = useRef<string[]>([]);
+  const postTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushPosts = useCallback(() => {
+    if (postTimer.current) clearTimeout(postTimer.current);
+    postTimer.current = null;
+    const keys = postQueue.current.splice(0, 100);
+    if (keys.length > 0) void markPostsRead(keys);
+  }, []);
+  const sentReads = useRef(new Set<string>());
+  const readQueue = useRef<string[]>([]);
+  const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushReads = useCallback(() => {
+    if (readTimer.current) clearTimeout(readTimer.current);
+    readTimer.current = null;
+    const ids = readQueue.current.splice(0, 100);
+    if (ids.length > 0) void markItemsRead(ids);
+  }, []);
+  const markShown = useCallback(
+    (slide: Slide | undefined) => {
+      // X・Instagram・TikTok: 未読の一覧にある投稿なら既読にする
+      const postKey =
+        slide?.kind === "tweet" ? `x:${slide.id}` : slide?.kind === "insta" ? `ig:${slide.code}` : slide?.kind === "tiktok" ? `tt:${slide.id}` : null;
+      if (postKey) {
+        if (!Object.values(social).some((list) => list.includes(postKey))) return;
+        const next: Record<string, string[]> = {};
+        for (const [oshiId, list] of Object.entries(social)) next[oshiId] = list.filter((k) => k !== postKey);
+        setSocial(next);
+        if (socialCache) socialCache = { ...socialCache, keys: next };
+        postQueue.current.push(postKey);
+        if (postTimer.current) clearTimeout(postTimer.current);
+        postTimer.current = setTimeout(flushPosts, 800);
+        return;
+      }
+      if (!slide || slide.kind !== "item" || slide.item.read !== false) return;
+      const id = slide.item.item_id;
+      if (sentReads.current.has(id)) return;
+      sentReads.current.add(id);
+      readQueue.current.push(id);
+      setLocalRead((prev) => ({ ...prev, [active.id]: (prev[active.id] ?? 0) + 1 }));
+      if (readTimer.current) clearTimeout(readTimer.current);
+      readTimer.current = setTimeout(flushReads, 800);
+    },
+    [active.id, flushReads, flushPosts, social],
+  );
+  useEffect(
+    () => () => {
+      flushReads();
+      flushPosts();
+    },
+    [flushReads, flushPosts],
+  );
+  // 新着の画面で表示している1枚を、少し(0.6秒)見たら既読にする(素早く送り飛ばした投稿は未読のまま)
+  useEffect(() => {
+    if (view !== "feed") return;
+    const slide = slides[current];
+    const timer = setTimeout(() => markShown(slide), 600);
+    return () => clearTimeout(timer);
+  }, [current, view, slides, markShown]);
 
   // 左右のスワイプで画面を切り替える(カレンダー ← 新着 → ギャラリー)。推しの切り替えは上のアイコンで行う。
   // 3つの画面の中身は読み込み済みなので、サーバーを待たずにその場で切り替え、URLだけ書き換える
@@ -380,6 +520,9 @@ export function SwipeFeed({
       buzz(15);
       setEnter(step > 0 ? "right" : "left");
       setView(next);
+      // BGM: カレンダーはたたんだ状態から、ギャラリーは前の状態から
+      if (next === "calendar") setBgmOpen(false);
+      else if (next === "gallery") setBgmOpen(galleryBgmOpen());
       window.history.replaceState(window.history.state, "", tabHref(active.id, next));
     },
     [view, active.id],
@@ -442,8 +585,21 @@ export function SwipeFeed({
       isAdmin,
       mode,
       canSensitive,
+      saved,
+      toggleSave: async (post: SavePostInput) => {
+        const result = await toggleSavedPost(post);
+        if (!result.ok || !result.data) return result.ok ? "保存できませんでした" : result.error;
+        const on = result.data.saved;
+        setSaved((prev) => {
+          const next = new Set(prev);
+          if (on) next.add(post.url);
+          else next.delete(post.url);
+          return next;
+        });
+        return on;
+      },
     }),
-    [muted, activated, isAdmin, mode, canSensitive],
+    [muted, activated, isAdmin, mode, canSensitive, saved],
   );
 
   return (
@@ -499,7 +655,7 @@ export function SwipeFeed({
       >
         {strip.map((o, i) => {
           const on = i === leftIndex;
-          const count = unread[o.id] ?? 0;
+          const count = unreadOf(o.id);
           return (
             <OshiTab
               key={`${o.id}-${i}`}
@@ -527,7 +683,11 @@ export function SwipeFeed({
         <div
           key={view}
           className="absolute inset-0 z-10 bg-black"
-          style={enter ? { animation: `view-enter-${enter} 180ms ease-out` } : undefined}
+          style={{
+            ...(enter ? { animation: `view-enter-${enter} 180ms ease-out` } : {}),
+            // BGM のプレーヤーの高さ。写真の説明やカレンダーの一覧を、その分だけ上に逃がす
+            ["--bgm-h" as string]: bgm ? (bgmOpen ? "248px" : "52px") : "0px",
+          }}
         >
           {view === "gallery" ? (
             <GalleryBody key={`g-${active.id}`} oshi={active} photos={gallery} />
@@ -536,6 +696,8 @@ export function SwipeFeed({
           )}
         </div>
       ) : null}
+      {/* BGM: ギャラリー・カレンダーの間だけ左下で流す(左右の切り替えでは途切れない)。新着に戻ると止まる */}
+      {view !== "feed" && bgm ? <BgmPlayer key={`bgm-${active.id}`} bgm={bgm} open={bgmOpen} onToggle={toggleBgm} /> : null}
 
       <div
         className={`absolute inset-0 ${view === "feed" ? "" : "invisible"}`}
@@ -614,9 +776,9 @@ function fromLabel(from: string): string {
 }
 
 // 右側のボタン(推しのアイコン・開く・共有)
-function Icon({ d }: { d: string[] }) {
+function Icon({ d, filled = false }: { d: string[]; filled?: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden className="h-[22px] w-[22px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" aria-hidden className="h-[22px] w-[22px]" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       {d.map((path) => (
         <path key={path} d={path} />
       ))}
@@ -690,34 +852,209 @@ function Sheet({ title, items, onClose }: { title: string; items: SheetItem[]; o
   );
 }
 
+// BGM のプレーヤー(最初は左下)。YouTube の決まりで、再生中はプレーヤーを 200×200 以上で見えるように置く。
+// たたむとプレーヤーを外して止め、「♪ BGM」の小さなボタンだけ残す。押すと開いて再生する。
+// 上の帯(♪ BGM の行)か、たたんだボタンを長押しすると、そのまま指で好きな位置へ動かせる(位置は端末に覚える)
+const BGM_POS_KEY = "oshi-bgm-pos";
+function readBgmPos(): { x: number; y: number } | null {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(BGM_POS_KEY) ?? "null") as { x?: unknown; y?: unknown } | null;
+    return value && typeof value.x === "number" && typeof value.y === "number" ? { x: value.x, y: value.y } : null;
+  } catch {
+    return null;
+  }
+}
+
+function BgmPlayer({ bgm, open, onToggle }: { bgm: Bgm; open: boolean; onToggle: () => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  // 画面の左上からの位置(割合)。null のあいだは左下
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => (typeof window === "undefined" ? null : readBgmPos()));
+  const [dragging, setDragging] = useState(false);
+  const drag = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const justDragged = useRef(false);
+
+  // 画面からはみ出さない位置に収める
+  const place = (left: number, top: number) => {
+    const el = box.current;
+    const parent = el?.offsetParent as HTMLElement | null;
+    if (!el || !parent) return null;
+    const maxX = Math.max(0, parent.clientWidth - el.offsetWidth);
+    const maxY = Math.max(0, parent.clientHeight - el.offsetHeight);
+    const x = Math.min(Math.max(0, left), maxX);
+    const y = Math.min(Math.max(0, top), maxY);
+    return { x: maxX ? x / maxX : 0, y: maxY ? y / maxY : 1 };
+  };
+
+  const handle = {
+    onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
+      const el = box.current;
+      if (!el) return;
+      const target = event.currentTarget;
+      const pointerId = event.pointerId;
+      start.current = { x: event.clientX, y: event.clientY };
+      const rect = el.getBoundingClientRect();
+      const dx = event.clientX - rect.left;
+      const dy = event.clientY - rect.top;
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => {
+        drag.current = { dx, dy, moved: false };
+        setDragging(true);
+        buzz([40]);
+        try {
+          target.setPointerCapture(pointerId);
+        } catch {
+          // 指を離した後などは捕まえられないことがある
+        }
+      }, 450);
+    },
+    onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
+      const d = drag.current;
+      if (!d) {
+        // 長押しになる前に指が動いたら、移動ではなく通常の操作とみなす
+        const s0 = start.current;
+        if (s0 && Math.hypot(event.clientX - s0.x, event.clientY - s0.y) > 10 && timer.current) {
+          clearTimeout(timer.current);
+          timer.current = null;
+        }
+        return;
+      }
+      event.preventDefault();
+      const parent = box.current?.offsetParent as HTMLElement | null;
+      if (!parent) return;
+      const origin = parent.getBoundingClientRect();
+      const next = place(event.clientX - origin.left - d.dx, event.clientY - origin.top - d.dy);
+      if (next) {
+        d.moved = true;
+        setPos(next);
+      }
+    },
+    onPointerUp: () => {
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      if (drag.current) {
+        justDragged.current = true;
+        drag.current = null;
+        setDragging(false);
+        setPos((current) => {
+          try {
+            if (current) window.localStorage.setItem(BGM_POS_KEY, JSON.stringify(current));
+          } catch {
+            // 覚えられない環境でも、この画面の間はその位置に置く
+          }
+          return current;
+        });
+      }
+    },
+    onPointerCancel: () => {
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      drag.current = null;
+      setDragging(false);
+    },
+    onContextMenu: (event: React.MouseEvent) => event.preventDefault(),
+    // 動かした直後のクリック(たたむ・開く)は無視する
+    onClickCapture: (event: React.MouseEvent) => {
+      if (justDragged.current) {
+        event.preventDefault();
+        event.stopPropagation();
+        justDragged.current = false;
+      }
+    },
+  };
+
+  const style: React.CSSProperties = pos
+    ? {
+        left: `calc((100% - var(--bgm-w)) * ${pos.x})`,
+        top: `calc((100% - var(--bgm-hh)) * ${pos.y})`,
+      }
+    : { left: "0.75rem", bottom: "calc(1rem + env(safe-area-inset-bottom))" };
+
+  return (
+    <div
+      ref={box}
+      className={`absolute z-20 touch-none text-white ${dragging ? "scale-105" : ""} transition-transform`}
+      style={{
+        ...style,
+        ["--bgm-w" as string]: open ? "200px" : "104px",
+        ["--bgm-hh" as string]: open ? "236px" : "40px",
+        WebkitTouchCallout: "none",
+        userSelect: "none",
+      }}
+    >
+      {open ? (
+        <div className={`w-[200px] overflow-hidden rounded-2xl bg-black/80 shadow-2xl ring-1 backdrop-blur ${dragging ? "ring-white/60" : "ring-white/15"}`}>
+          <div {...handle} className="flex h-9 cursor-grab items-center justify-between pr-1 pl-3 text-[12px] font-bold">
+            <span>♪ BGM</span>
+            <button type="button" onClick={onToggle} className="h-8 rounded-full px-3 text-white/80 active:bg-white/10" aria-label="BGM をたたんで止める">
+              たたむ
+            </button>
+          </div>
+          <iframe
+            src={bgmEmbedUrl(bgm)}
+            title="BGM"
+            width={200}
+            height={200}
+            className={`block h-[200px] w-[200px] bg-black ${dragging ? "pointer-events-none" : ""}`}
+            allow="autoplay; encrypted-media; picture-in-picture"
+            referrerPolicy="strict-origin-when-cross-origin"
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          {...handle}
+          onClick={onToggle}
+          className={`flex h-10 w-[104px] items-center justify-center gap-1 rounded-full bg-black/70 text-[13px] font-bold shadow-xl ring-1 backdrop-blur ${dragging ? "ring-white/60" : "ring-white/15"}`}
+          aria-label="BGM を開いて再生する(長押しで移動)"
+        >
+          ♪ BGM
+        </button>
+      )}
+    </div>
+  );
+}
+
 // 推しのメニュー(上の並びの推しのアイコン・右下の推しのアイコンの長押し)
 function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
+  const [panel, setPanel] = useState<"menu" | "posts">("menu");
   const items: { href: string; label: string }[] = [
     { href: `/app/manage?edit=${encodeURIComponent(oshi.id)}`, label: "推し情報の更新" },
     { href: "/app/manage?new=1", label: "推し情報の新規登録" },
   ];
+  const row = "flex min-h-[56px] w-full items-center px-4 py-2 text-left text-[15px] font-semibold active:bg-white/10";
   return (
     <div className="fixed inset-0 z-[60] flex items-end bg-black/60 text-white" onClick={onClose} role="presentation">
       <div
         role="dialog"
         aria-label={`${oshi.name}のメニュー`}
         onClick={(event) => event.stopPropagation()}
-        className="w-full rounded-t-3xl bg-[#111] px-4 pt-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-white shadow-2xl"
+        className="max-h-[90dvh] w-full overflow-y-auto rounded-t-3xl bg-[#111] px-4 pt-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-white shadow-2xl"
       >
         <span aria-hidden className="mx-auto mb-4 block h-1 w-10 rounded-full bg-white/25" />
         <div className="mb-3 flex items-center gap-3 px-1">
           <OshiAvatar oshi={oshi} size={44} />
           <p className="truncate text-lg font-bold">{oshi.name}</p>
         </div>
-        <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
-          {items.map((item) => (
-            <li key={item.href}>
-              <Link href={item.href} className="flex min-h-[56px] items-center px-4 py-2 text-[15px] font-semibold active:bg-white/10">
-                {item.label}
-              </Link>
+        {panel === "menu" ? (
+          <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
+            {items.map((item) => (
+              <li key={item.href}>
+                <Link href={item.href} className={row}>
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+            <li>
+              <button type="button" onClick={() => setPanel("posts")} className={row}>
+                個別投稿の更新
+              </button>
             </li>
-          ))}
-        </ul>
+          </ul>
+        ) : (
+          <ManualPosts oshi={oshi} onBack={() => setPanel("menu")} />
+        )}
         <button type="button" onClick={onClose} className="mt-3 h-12 w-full rounded-2xl bg-white/10 text-[15px] font-semibold">
           閉じる
         </button>
@@ -726,10 +1063,114 @@ function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
   );
 }
 
+// 個別投稿の更新: 過去の YouTube 動画などをURLで推しのフィードに足す・外す。足した投稿はフィードの先頭に並ぶ
+function ManualPosts({ oshi, onBack }: { oshi: Oshi; onBack: () => void }) {
+  const router = useRouter();
+  const [posts, setPosts] = useState<ManualPost[] | null>(null);
+  const [url, setUrl] = useState("");
+  const [message, setMessage] = useState<{ tone: "ok" | "danger"; text: string } | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    let alive = true;
+    void listManualPosts(oshi.id).then((result) => {
+      if (!alive) return;
+      if (result.ok) setPosts(result.data?.posts ?? []);
+      else {
+        setPosts([]);
+        setMessage({ tone: "danger", text: result.error });
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [oshi.id]);
+
+  const add = () => {
+    setMessage(null);
+    startTransition(async () => {
+      const result = await addManualPost(oshi.id, url);
+      if (!result.ok || !result.data) return setMessage({ tone: "danger", text: result.ok ? "追加できませんでした" : result.error });
+      const post = result.data.post;
+      setPosts((prev) => [post, ...(prev ?? [])]);
+      setUrl("");
+      setMessage({ tone: "ok", text: "追加しました。フィードの先頭に並びます" });
+      router.refresh();
+    });
+  };
+  const remove = (id: string) => {
+    setMessage(null);
+    startTransition(async () => {
+      const result = await removeManualPost(id);
+      if (!result.ok) return setMessage({ tone: "danger", text: result.error });
+      setPosts((prev) => (prev ?? []).filter((p) => p.id !== id));
+      router.refresh();
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 px-1">
+        <button type="button" onClick={onBack} className="text-[13px] text-white/60" aria-label="メニューに戻る">
+          ‹ 戻る
+        </button>
+        <p className="text-[15px] font-bold">個別投稿の更新</p>
+      </div>
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (url.trim() && !pending) add();
+        }}
+      >
+        <input
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          inputMode="url"
+          placeholder="YouTube の動画のURL"
+          aria-label="追加する投稿のURL"
+          className="h-11 min-w-0 flex-1 rounded-xl border border-white/15 bg-white/5 px-3 text-[15px] text-white placeholder:text-white/40"
+        />
+        <button type="submit" disabled={pending || !url.trim()} className="h-11 shrink-0 rounded-xl bg-white px-4 text-[15px] font-bold text-black disabled:opacity-40">
+          追加
+        </button>
+      </form>
+      {message ? <p className={`px-1 text-[13px] ${message.tone === "ok" ? "text-emerald-300" : "text-[#ff6b8f]"}`}>{message.text}</p> : null}
+      {posts === null ? (
+        <p className="px-1 text-[13px] text-white/50">読み込み中…</p>
+      ) : posts.length === 0 ? (
+        <p className="px-1 text-[13px] text-white/50">追加した投稿はまだありません</p>
+      ) : (
+        <ul className="divide-y divide-white/10 overflow-hidden rounded-2xl bg-white/5">
+          {posts.map((post) => (
+            <li key={post.id} className="flex items-center gap-3 px-3 py-2">
+              {post.thumbnail_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={post.thumbnail_url} alt="" className="h-10 w-16 shrink-0 rounded-md bg-white/10 object-cover" loading="lazy" />
+              ) : null}
+              <span className="clamp-2 min-w-0 flex-1 text-[13px]">{post.title}</span>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => remove(post.id)}
+                className="h-9 shrink-0 rounded-lg bg-white/10 px-3 text-[13px] disabled:opacity-40"
+              >
+                外す
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // 右側のボタン(推しのアイコン・開く・共有・ミュート・設定・管理)
 // reactions: ❤ で出す反応(いいね・リポスト・コメントなど)。各SNSの公式の画面を開いて行う
-function SideActions({ oshi, url, title, platform, reactions }: {
+function SideActions({ oshi, url, title, platform, reactions, thumbnail, publishedAt }: {
   oshi: Oshi; url: string; title: string; platform: string; reactions?: SheetItem[];
+  // 保存するときに一緒に残す写真と投稿日時(分かるものだけ)
+  thumbnail?: string | null; publishedAt?: string | null;
 }) {
   const { muted, toggleMute, isAdmin, activated } = useContext(Controls);
   const router = useRouter();
@@ -737,7 +1178,7 @@ function SideActions({ oshi, url, title, platform, reactions }: {
   // 右下の推しのアイコンを長押し: その推しのメニュー(推し情報の更新・新規登録)
   const avatarPress = useLongPress(() => setMenu(true));
   // 設定(管理)ボタンを長押し: 通常 ⇔ Sensitive の推しを切り替える(Sensitive プランだけ)
-  const { mode, canSensitive } = useContext(Controls);
+  const { mode, canSensitive, saved, toggleSave } = useContext(Controls);
   const [modeNote, setModeNote] = useState<string | null>(null);
   const newPress = useLongPress(() => {
     if (!canSensitive) {
@@ -760,6 +1201,22 @@ function SideActions({ oshi, url, title, platform, reactions }: {
   const silent = muted || waiting;
   const soundTone = silent ? `bg-[#ff2d6f] text-white${waiting ? " animate-pulse" : ""}` : "bg-white/15";
   const [sheet, setSheet] = useState<"share" | "react" | null>(null);
+  // 反応ボタン: Developer は短押しでこの投稿を保存(期間無制限)・もう一度で解除、長押しで反応のメニュー。
+  // それ以外のプランは短押しで反応のメニュー
+  const isSaved = saved.has(url);
+  const [saving, setSaving] = useState(false);
+  const flash = (text: string) => {
+    setModeNote(text);
+    setTimeout(() => setModeNote(null), 2000);
+  };
+  const save = () => {
+    if (saving) return;
+    setSaving(true);
+    void toggleSave({ url, oshiId: oshi.id, platform, title, thumbnailUrl: thumbnail ?? null, publishedAt: publishedAt ?? null })
+      .then((result) => flash(typeof result === "string" ? result : result ? "保存しました" : "保存を外しました"))
+      .finally(() => setSaving(false));
+  };
+  const reactPress = useLongPress(() => setSheet("react"));
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -793,12 +1250,28 @@ function SideActions({ oshi, url, title, platform, reactions }: {
       </button>
       {/* メニューは画面全体のいちばん上に出す(ほかの表示と重ならないよう、ページの最上位に置く) */}
       {menu ? createPortal(<OshiMenu oshi={oshi} onClose={() => setMenu(false)} />, document.body) : null}
-      <button type="button" onClick={() => setSheet("react")} className={item} aria-label="いいね・コメントなど">
-        <span className={round}>
-          <Icon d={ICON.heart} />
-        </span>
-        反応
-      </button>
+      {isAdmin ? (
+        <button
+          type="button"
+          onClick={save}
+          {...reactPress}
+          className={item}
+          aria-pressed={isSaved}
+          aria-label={isSaved ? "保存済み(タップで保存を外す・長押しでいいね・コメントなど)" : "保存する(長押しでいいね・コメントなど)"}
+        >
+          <span className={`${round} ${isSaved ? "bg-[#ff2d6f] text-white" : ""} ${saving ? "opacity-60" : ""}`}>
+            <Icon d={ICON.heart} filled={isSaved} />
+          </span>
+          {isSaved ? "保存済み" : "保存"}
+        </button>
+      ) : (
+        <button type="button" onClick={() => setSheet("react")} className={item} aria-label="いいね・コメントなど">
+          <span className={round}>
+            <Icon d={ICON.heart} />
+          </span>
+          反応
+        </button>
+      )}
       <button type="button" onClick={() => setSheet("share")} className={item} aria-label="開く・共有・リンクをコピー">
         <span className={round}>
           <Icon d={ICON.share} />
@@ -882,16 +1355,44 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   item: TimelineItem; from: string; oshi: Oshi; live: boolean; near: boolean; muted: boolean; onToggleSound: () => boolean;
 }) {
   const title = decodeEntities(item.title);
-  const isNew = item.published_at > oshi.last_seen_at;
+  // まだ表示していない投稿に「NEW」を付ける(既読かどうか分からないときは、推しを開いた時刻で決める)
+  const isNew = item.read === undefined ? item.published_at > oshi.last_seen_at : !item.read;
   const time = formatRelative(item.published_at);
   const videoId = item.platform === "youtube" ? youtubeVideoId(item.url) : null;
   const short = isYoutubeShort(item.url);
   const frame = useRef<HTMLIFrameElement>(null);
 
   const { activated } = useContext(Controls);
-  const send = useCallback((func: string) => {
-    frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args: [] }), "*");
+  const send = useCallback((func: string, args: unknown[] = []) => {
+    frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args }), "*");
   }, []);
+  // 再生位置と長さ(YouTube から届く情報で更新する。長押しで1分ずつ先へ送るのに使う)
+  const playback = useRef<{ at: number; duration: number }>({ at: 0, duration: 0 });
+  // 動画の長押し(0.5秒で2倍速、1.0秒で10倍速、2.0秒で+5分、2.5秒で+10分)。離すと元の速さと音に戻す
+  const fast = useFastForward(playback, {
+    setRate: (rate) => send("setPlaybackRate", [rate]),
+    seek: (seconds) => {
+      playback.current.at = seconds;
+      send("seekTo", [seconds, true]);
+    },
+    mute: () => send("mute"),
+    restore: () => {
+      send(soundRef.current ? "unMute" : "mute");
+      send("playVideo");
+    },
+  });
+  useEffect(() => {
+    if (!live) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow || typeof event.data !== "string") return;
+      const data = safeJson(event.data) as { event?: string; info?: { currentTime?: unknown; duration?: unknown } } | null;
+      if (!data || data.event !== "infoDelivery" || !data.info || typeof data.info !== "object") return;
+      if (typeof data.info.currentTime === "number") playback.current.at = data.info.currentTime;
+      if (typeof data.info.duration === "number") playback.current.duration = data.info.duration;
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [live]);
 
   // 音のオン・オフは YouTube の埋め込みに命令を送って切り替える(画面に出ている1件だけ)。
   // 自動再生を確実に始めるため音なしで読み込み、画面を一度でも触っていれば音をオンにする。
@@ -977,7 +1478,7 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
           <p className="truncate text-xs font-extrabold tracking-wide text-white/80">BLOG ・ {hostOf(item.url)}</p>
           <p className="mt-4 line-clamp-[8] text-[26px] leading-[1.45] font-black [text-shadow:0_2px_12px_rgba(0,0,0,.35)]">{title}</p>
         </a>
-        <SideActions oshi={oshi} url={item.url} title={title} platform="Blog" reactions={[{ label: "記事を開いてコメント・いいね", note: hostOf(item.url), href: item.url }]} />
+        <SideActions oshi={oshi} url={item.url} title={title} platform="Blog" thumbnail={item.thumbnail_url} publishedAt={item.published_at} reactions={[{ label: "記事を開いてコメント・いいね", note: hostOf(item.url), href: item.url }]} />
         <Info platform="Blog" oshi={oshi} from={from} time={time} isNew={isNew} />
       </>
     );
@@ -1027,16 +1528,20 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
       {/* 動画の上の透明な層: 上下のスワイプを受け取り、タップで音を切り替える */}
       <button
         type="button"
-        aria-label={muted || !activated ? "音を出す" : "音を消す"}
+        aria-label={muted || !activated ? "音を出す(長押しで早送り)" : "音を消す(長押しで早送り)"}
         onClick={tap}
-        className="absolute inset-0 z-[5] cursor-pointer"
+        {...(videoId ? fast.handlers : {})}
+        className="absolute inset-0 z-[5] cursor-pointer select-none [-webkit-touch-callout:none]"
       />
+      {fast.active ? <FastBadge skipped={fast.count} /> : null}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
       <SideActions
         oshi={oshi}
         url={item.url}
         title={title}
         platform="YouTube"
+        thumbnail={item.thumbnail_url}
+        publishedAt={item.published_at}
         reactions={[
           { label: "YouTubeで高く評価(いいね)・コメント", note: "YouTube を開きます", href: item.url },
           { label: "チャンネル登録", note: "YouTube を開きます", href: `${item.url}${item.url.includes("?") ? "&" : "?"}sub_confirmation=1` },
@@ -1361,6 +1866,60 @@ function TweetSlide({ source, id, at, from, oshi, near, live }: {
 }
 
 // TikTok の動画1本。TikTok 公式の動画プレーヤーを全画面で出す。画面に出ている1本だけ読み込み、自動で再生する。
+// 動画の長押し(押し始めからの時間):
+//   0.5秒 2倍速(プレーヤーの機能。音はそのまま)
+//   1.0秒 10倍速(2倍速で再生しながら0.5秒ごとに4秒ずつ先へ送って作る。途切れ途切れになるので音を消す)
+//   2.0秒 押し始めの位置から+5分へ、2.5秒 +10分へ(その後も10倍速のまま)
+// 指を離すと元の速さと音に戻る。動画の終わりより先には送らない
+const FAST_FIRST_MS = 1000;
+const FAST_EVERY_MS = 500;
+const FAST_STEP_SECONDS = 4;
+// 何回目(0.5秒ごと)で、押し始めの位置から何秒先へ送るか
+const FAST_JUMPS: Record<number, number> = { 3: 5 * 60, 4: 10 * 60 };
+
+type Playback = React.RefObject<{ at: number; duration: number }>;
+function useFastForward(
+  playback: Playback,
+  player: { setRate: (rate: number) => void; seek: (seconds: number) => void; mute: () => void; restore: () => void },
+) {
+  const startAt = useRef(0);
+  return useHold(
+    () => {
+      startAt.current = playback.current.at;
+      player.setRate(2);
+    },
+    () => {
+      player.setRate(1);
+      player.restore();
+    },
+    {
+      firstMs: FAST_FIRST_MS,
+      everyMs: FAST_EVERY_MS,
+      onRepeat: (count) => {
+        if (count === 1) player.mute();
+        const { at, duration } = playback.current;
+        let target = at + FAST_STEP_SECONDS;
+        const jump = FAST_JUMPS[count];
+        if (jump) target = Math.max(target, startAt.current + jump);
+        const end = duration > 0 ? Math.max(0, duration - 1) : target;
+        // 送った位置は player.seek の中で覚える(次の0.5秒の基準にする)
+        player.seek(Math.min(target, end));
+      },
+    },
+  );
+}
+
+// 長押しで速くしている間、画面の上に出す印
+function FastBadge({ skipped }: { skipped: number }) {
+  const speed = skipped >= 1 ? "10倍速" : "2倍速";
+  const jumped = skipped >= 4 ? " ・ +10分" : skipped >= 3 ? " ・ +5分" : "";
+  return (
+    <p className="pointer-events-none absolute top-[calc(var(--bar)+0.5rem)] left-1/2 z-[6] -translate-x-1/2 rounded-full bg-black/60 px-4 py-1.5 text-[13px] font-bold whitespace-nowrap text-white">
+      {speed} ▶▶{jumped}
+    </p>
+  );
+}
+
 // タップで音のオン・オフ(プレーヤーに命令を送る)
 function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }: {
   source: Source; id: string; at: string | null; from: string; oshi: Oshi; live: boolean; muted: boolean; onToggleSound: () => boolean;
@@ -1368,9 +1927,38 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
   const handle = source.handle.replace(/^@/, "");
   const url = `https://www.tiktok.com/@${handle}/video/${id}`;
   const frame = useRef<HTMLIFrameElement>(null);
-  const send = useCallback((type: string) => {
-    frame.current?.contentWindow?.postMessage({ "x-tiktok-player": true, type }, "*");
+  const send = useCallback((type: string, value?: number) => {
+    frame.current?.contentWindow?.postMessage({ "x-tiktok-player": true, type, ...(value === undefined ? {} : { value }) }, "*");
   }, []);
+  // 再生位置と長さ(TikTok のプレーヤーから届く情報で更新する)
+  const playback = useRef<{ at: number; duration: number }>({ at: 0, duration: 0 });
+  // 動画の長押し(YouTube と同じ段階)。TikTok のプレーヤーは2倍速に応じないことがあり、その場合は先送りだけが効く
+  const fast = useFastForward(playback, {
+    setRate: (rate) => send("setPlaybackRate", rate),
+    seek: (seconds) => {
+      playback.current.at = seconds;
+      send("seekTo", seconds);
+    },
+    mute: () => send("mute"),
+    restore: () => {
+      send(!muted && activated ? "unMute" : "mute");
+      send("play");
+    },
+  });
+  useEffect(() => {
+    if (!live) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow) return;
+      const data = (typeof event.data === "string" ? safeJson(event.data) : event.data) as
+        | { "x-tiktok-player"?: boolean; type?: string; value?: { currentTime?: unknown; duration?: unknown } }
+        | null;
+      if (!data || !data["x-tiktok-player"] || data.type !== "onCurrentTime" || !data.value || typeof data.value !== "object") return;
+      if (typeof data.value.currentTime === "number") playback.current.at = data.value.currentTime;
+      if (typeof data.value.duration === "number") playback.current.duration = data.value.duration;
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [live]);
   const { activated } = useContext(Controls);
   // 画面を初めて触るまでは音なしで再生する(起動直後に音をオンにすると、ブラウザが再生を止めてしまう)。
   // 触ったら音の設定を送り直す
@@ -1429,13 +2017,15 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
         </div>
       </div>
       {/* 動画の上の透明な層: 上下のスワイプを受け取り、タップで音を切り替える */}
-      <button type="button" aria-label={muted ? "音を出す" : "音を消す"} onClick={() => {
+      <button type="button" aria-label={muted ? "音を出す(長押しで早送り)" : "音を消す(長押しで早送り)"} onClick={() => {
           const on = onToggleSound();
           send(on ? "unMute" : "mute");
           send("play");
         }}
-        className="absolute inset-0 z-[5] cursor-pointer"
+        {...fast.handlers}
+        className="absolute inset-0 z-[5] cursor-pointer select-none [-webkit-touch-callout:none]"
       />
+      {fast.active ? <FastBadge skipped={fast.count} /> : null}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent" />
       <SideActions oshi={oshi} url={url} title={`${oshi.name}のTikTok`} platform="TikTok" />
       <Info platform="TikTok" oshi={oshi} from={from} time={at ? formatRelative(at) : ""} title={`TikTok @${handle}`} isNew={at ? at > oshi.last_seen_at : false} />

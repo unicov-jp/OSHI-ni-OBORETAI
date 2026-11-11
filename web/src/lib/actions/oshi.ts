@@ -188,7 +188,7 @@ export async function markItemsRead(itemIds: string[]): Promise<ActionResult> {
 export async function markPostsRead(keys: string[]): Promise<ActionResult> {
   if (DEMO) return { ok: true };
   const viewer = await requireViewer();
-  const parsed = z.array(z.string().regex(/^(x|ig|tt):[A-Za-z0-9_-]{1,64}$/)).max(100).safeParse(keys);
+  const parsed = z.array(z.string().regex(/^(x|ig|tt|fa):[A-Za-z0-9_-]{1,64}$/)).max(100).safeParse(keys);
   if (!parsed.success || parsed.data.length === 0) return { ok: true };
   const supabase = await createClient();
   await supabase

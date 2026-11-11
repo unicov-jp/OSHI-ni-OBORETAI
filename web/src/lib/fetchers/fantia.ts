@@ -5,9 +5,10 @@ import { safeFetchText } from "@/lib/fetchers/safe-fetch";
 // 本文や画像は会員限定なので読まない。同じファンクラブは1時間に1回まで見に行く。
 // Fantia の都合で予告なく使えなくなることがある。
 
-export type FantiaPost = { id: string; title: string; at: string | null };
+export type FantiaPost = { id: string; title: string; at: string | null; thumb: string | null };
+export type FantiaClub = { name: string; posts: FantiaPost[] };
 
-const cache = new Map<string, { posts: FantiaPost[]; at: number }>();
+const cache = new Map<string, { club: FantiaClub; at: number }>();
 const TTL = 60 * 60 * 1000;
 const MAX_POSTS = 20;
 const HEADERS = {
@@ -20,6 +21,21 @@ const HEADERS = {
 export function fantiaClubId(handleOrUrl: string): string | null {
   const id = /(?:fanclubs\/)?(\d{1,12})\b/.exec(handleOrUrl)?.[1];
   return id ?? null;
+}
+
+// 投稿の画像(公開されているサムネイル)。大きいものから選ぶ
+const THUMB_KEYS = ["main", "large", "ogp", "medium", "original", "thumb", "small", "micro"];
+function thumbOf(row: Record<string, unknown>): string | null {
+  const ok = (value: unknown) => (typeof value === "string" && /^https:\/\/[a-z0-9.-]*fantia\.jp\//.test(value) ? value : null);
+  const thumb = row.thumb;
+  if (thumb && typeof thumb === "object") {
+    const t = thumb as Record<string, unknown>;
+    for (const key of THUMB_KEYS) {
+      const hit = ok(t[key]);
+      if (hit) return hit;
+    }
+  }
+  return ok(thumb) ?? ok(row.thumb_micro) ?? null;
 }
 
 function toIso(value: unknown): string | null {
@@ -45,6 +61,7 @@ export function postsFromFantia(data: unknown): FantiaPost[] {
           id,
           title: row.title.slice(0, 300),
           at: toIso(row.posted_at) ?? toIso(row.converted_at) ?? toIso(row.created_at) ?? null,
+          thumb: thumbOf(row),
         });
       }
       return;
@@ -57,17 +74,34 @@ export function postsFromFantia(data: unknown): FantiaPost[] {
     .slice(0, MAX_POSTS);
 }
 
-export async function fantiaPosts(clubId: string): Promise<FantiaPost[]> {
-  if (!/^\d{1,12}$/.test(clubId)) return [];
+// ファンクラブの名前(「ファンクラブ名 (クリエイター名)」の形があればそれを使う)
+export function clubNameFromFantia(data: unknown): string {
+  const club = (data as { fanclub?: Record<string, unknown> } | null)?.fanclub;
+  if (!club) return "";
+  for (const key of ["fanclub_name_with_creator_name", "name", "fanclub_name", "creator_name", "title"]) {
+    const value = club[key];
+    if (typeof value === "string" && value.trim()) return value.trim().slice(0, 120);
+  }
+  return "";
+}
+
+export async function fantiaClub(clubId: string): Promise<FantiaClub> {
+  if (!/^\d{1,12}$/.test(clubId)) return { name: "", posts: [] };
   const hit = cache.get(clubId);
-  if (hit && Date.now() - hit.at < TTL) return hit.posts;
+  if (hit && Date.now() - hit.at < TTL) return hit.club;
   try {
     const page = await safeFetchText(`https://fantia.jp/api/v1/fanclubs/${clubId}`, { headers: HEADERS });
-    const posts = postsFromFantia(JSON.parse(page.text));
-    cache.set(clubId, { posts, at: Date.now() });
-    return posts;
+    const data = JSON.parse(page.text) as unknown;
+    const club = { name: clubNameFromFantia(data), posts: postsFromFantia(data) };
+    cache.set(clubId, { club, at: Date.now() });
+    return club;
   } catch {
-    cache.set(clubId, { posts: [], at: Date.now() - TTL + 10 * 60 * 1000 });
-    return [];
+    const club = { name: "", posts: [] };
+    cache.set(clubId, { club, at: Date.now() - TTL + 10 * 60 * 1000 });
+    return club;
   }
+}
+
+export async function fantiaPosts(clubId: string): Promise<FantiaPost[]> {
+  return (await fantiaClub(clubId)).posts;
 }

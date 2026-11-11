@@ -61,8 +61,10 @@ export async function runFeed(
       added = ids.filter((id) => !known.has(id)).length;
 
       const now = new Date().toISOString();
+      // 投稿日がおおよそのとき(動画一覧のページから読んだとき)は、保存済みの投稿の日時を書き換えないよう、新しいものだけ足す
+      const rows = parsed.approximate ? parsed.items.filter((item) => !known.has(item.externalId)) : parsed.items;
       const { error } = await admin.from("oshikatsu_feed_items").upsert(
-        parsed.items.map((item) => ({
+        rows.map((item) => ({
           feed_id: feed.id,
           external_id: item.externalId,
           title: item.title,

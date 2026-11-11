@@ -15,6 +15,8 @@ export type ParsedFeed = {
   title: string;
   siteUrl: string;
   items: ParsedItem[];
+  // 投稿日がおおよそ(「3日前」などから計算した)とき true。すでに保存してある投稿の日時は書き換えない
+  approximate?: boolean;
 };
 
 const parser = new XMLParser({

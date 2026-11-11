@@ -85,8 +85,73 @@ export async function fetchYoutubeChannel(channelId: string, admin: SupabaseClie
   return { title, siteUrl: `https://www.youtube.com/channel/${channelId}`, items };
 }
 
+// APIキーがないときの読み方。YouTube の公開フィードは 404 を返すことがあるので、
+// チャンネルのフィード → アップロード再生リストのフィード → チャンネルの動画一覧のページ の順に試す
 async function fetchYoutubeViaFeed(channelId: string): Promise<ParsedFeed> {
-  const feed = await fetchFeed(youtubeFeedUrl(channelId));
+  try {
+    return await fetchYoutubeFeedUrl(channelId, youtubeFeedUrl(channelId));
+  } catch (first) {
+    try {
+      return await fetchYoutubeFeedUrl(channelId, `https://www.youtube.com/feeds/videos.xml?playlist_id=UU${channelId.slice(2)}`);
+    } catch {
+      try {
+        const page = await fetchYoutubeViaPage(channelId);
+        if (page.items.length > 0) return page;
+      } catch {
+        // 下で最初の失敗を伝える
+      }
+      throw first;
+    }
+  }
+}
+
+// チャンネルの「動画」の一覧ページから、最新の動画の番号・題名・おおよその投稿日(「3 days ago」など)を読む
+const UNIT_MS: Record<string, number> = {
+  second: 1000, minute: 60_000, hour: 3_600_000, day: 86_400_000, week: 7 * 86_400_000, month: 30 * 86_400_000, year: 365 * 86_400_000,
+};
+export function relativeToIso(text: string, now = Date.now()): string | null {
+  const match = /(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago/i.exec(text);
+  if (!match) return null;
+  return new Date(now - Number(match[1]) * UNIT_MS[match[2].toLowerCase()]).toISOString();
+}
+
+export function videosFromChannelPage(html: string, now = Date.now()): ParsedItem[] {
+  const items: ParsedItem[] = [];
+  const seen = new Set<string>();
+  for (const match of html.matchAll(/"videoRenderer":\{"videoId":"([A-Za-z0-9_-]{11})"([\s\S]{0,6000}?)"publishedTimeText":\{"simpleText":"([^"]{1,60})"\}/g)) {
+    const [, videoId, body, when] = match;
+    if (seen.has(videoId)) continue;
+    seen.add(videoId);
+    const raw = /"title":\{"runs":\[\{"text":"((?:[^"\\]|\\.){1,400})"/.exec(body)?.[1] ?? "";
+    let title = raw;
+    try {
+      title = JSON.parse(`"${raw}"`) as string;
+    } catch {
+      // そのまま使う
+    }
+    items.push({
+      externalId: videoId,
+      title: (title || "(無題)").slice(0, 300),
+      url: `https://www.youtube.com/watch?v=${videoId}`,
+      publishedAt: relativeToIso(when, now) ?? new Date(now).toISOString(),
+      thumbnailUrl: thumbnail(videoId),
+    });
+    if (items.length >= 20) break;
+  }
+  return items;
+}
+
+async function fetchYoutubeViaPage(channelId: string): Promise<ParsedFeed> {
+  const page = await safeFetchText(`https://www.youtube.com/channel/${channelId}/videos`, {
+    truncateAt: 1900 * 1024,
+    headers: { "accept-language": "en-US,en;q=0.8", accept: "text/html" },
+  });
+  const title = channelFromPage(page.text)?.title ?? "";
+  return { title, siteUrl: `https://www.youtube.com/channel/${channelId}`, items: videosFromChannelPage(page.text), approximate: true };
+}
+
+async function fetchYoutubeFeedUrl(channelId: string, url: string): Promise<ParsedFeed> {
+  const feed = await fetchFeed(url);
   const items = feed.items.flatMap((item) => {
     const videoId = /^yt:video:([A-Za-z0-9_-]{11})$/.exec(item.externalId)?.[1];
     if (!videoId) return [];

@@ -12,6 +12,7 @@ const NAV = [
   { href: "/admin/feeds", label: "取得元" },
   { href: "/admin/pricing", label: "料金" },
   { href: "/admin/copy-oshi", label: "推しの複製" },
+  { href: "/admin/tasks", label: "残作業" },
   { href: "/admin/logs", label: "ログ" },
   // マスターは新着の画面に「管理」だけが出るので、設定はここから開く
   { href: "/app/settings", label: "設定" },

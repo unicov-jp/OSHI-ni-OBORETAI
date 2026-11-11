@@ -50,6 +50,7 @@
 ## 依頼者にお願いする作業
 
 0. **Stripe（残作業）**：サブスクの申し込み先。確認用プロジェクトの環境変数に `STRIPE_SUBSCRIBE_URL`（Stripe の Payment Link の https://buy.stripe.com/…）を入れる。金額は推しの人数ごとに、管理画面の「料金」で決める（`oshikatsu_price_tiers`）。あわせて、支払い状況でプランを自動で切り替える仕組み（Webhook）も作る
+0. **YouTube の公式APIキー（残作業）**：YouTube の公開フィードが 404 を返すことがあり、今はほかの読み方（アップロード再生リストのフィード → チャンネルの動画一覧のページ）に切り替えて取得している。動画一覧のページから読むと投稿日がおおよそになるため、安定させるには公式APIを使う。Google Cloud（oshikatsu-diary-509717）で「YouTube Data API v3」を有効にしてAPIキーを作り、本番の Vercel の環境変数 `YOUTUBE_API_KEY`（Production のみ・Secret）に入れて Redeploy。無料枠は1日1万回で、今の約13チャンネルを20分ごとに取得して1日約940回。上限の9割を使った日は自動で公開フィードに切り替える
 0. **推しの写真（残作業）**：確認用プロジェクト（oshi-ni-oboretai-next）の環境変数に、今の本番と同じ OAuth クライアント（oshi-ni-oboretai-drive）の `GOOGLE_OAUTH_CLIENT_ID`（Config）と `GOOGLE_OAUTH_CLIENT_SECRET`（Secret）を入れて Redeploy。設定画面（マスター）の「推しの写真」が OK になれば完了
 
 1. **新着用のSQLの実行**（いつ実行しても今のアプリには影響しない。何度実行してもよいので、P1-c で関数を足した今の版を実行する）：`supabase/migrations/20261110000000_oboretai_feeds.sql`

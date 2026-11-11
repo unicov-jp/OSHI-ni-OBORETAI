@@ -1083,3 +1083,37 @@ revoke all on function public.oshikatsu_social_unread_keys() from public, anon;
 grant execute on function public.oshikatsu_social_unread_keys() to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------------------
+-- 運営者向け管理画面の「残作業」(運営者だけが読み書きできる)
+-- ---------------------------------------------------------------------------
+create table if not exists public.oshikatsu_admin_tasks (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (char_length(title) between 1 and 120),
+  detail text not null default '' check (char_length(detail) <= 2000),
+  done boolean not null default false,
+  created_at timestamptz not null default now(),
+  done_at timestamptz
+);
+alter table public.oshikatsu_admin_tasks enable row level security;
+revoke all on public.oshikatsu_admin_tasks from anon, authenticated;
+grant select, insert, update, delete on public.oshikatsu_admin_tasks to authenticated;
+grant all on public.oshikatsu_admin_tasks to service_role;
+drop policy if exists oshikatsu_admin_tasks_admin on public.oshikatsu_admin_tasks;
+create policy oshikatsu_admin_tasks_admin on public.oshikatsu_admin_tasks for all to authenticated
+  using ((select public.oshikatsu_is_admin()))
+  with check ((select public.oshikatsu_is_admin()));
+
+-- 最初の残作業(まだ1件も無いときだけ入れる)
+insert into public.oshikatsu_admin_tasks (title, detail)
+select t.title, t.detail
+from (values
+  ('YouTube の公式APIキー', 'Google Cloud(oshikatsu-diary-509717)で「YouTube Data API v3」を有効にしてAPIキーを作り、本番の Vercel の環境変数 YOUTUBE_API_KEY(Production のみ・Secret)に入れて Redeploy。公開フィードが 404 を返すことがあり、今は別の読み方で取得している'),
+  ('Stripe(決済)', 'Stripe で決済リンクを作り、本番の環境変数 STRIPE_SUBSCRIBE_URL に入れる。支払い状況でプランを自動で切り替える Webhook も作る'),
+  ('Google の同意画面', 'アプリ名・プライバシーポリシー・利用規約のURLを保存し、確認(審査)を申請する'),
+  ('Google のクライアントシークレットをそろえる', '本番(末尾 …rx7g)と検証用(末尾 …ua54)で違っているので、1つにそろえる'),
+  ('TikTok の長押し', '本番で2倍速が効くかを確認し、効かなければ動きを決める')
+) as t(title, detail)
+where not exists (select 1 from public.oshikatsu_admin_tasks);
+
+notify pgrst, 'reload schema';

@@ -16,6 +16,7 @@ const ACTION_LABEL: Record<string, string> = {
   "price.tiers": "料金を変更",
   "price.per_oshi": "料金(1人あたり)を変更",
   "plan.names": "プラン名を変更",
+  "oshi.copy": "推しを複製",
 };
 
 export default async function AdminLogsPage({
@@ -61,6 +62,25 @@ export default async function AdminLogsPage({
           </Link>
         ) : null}
       </nav>
+
+      {/* 調査用: 表示中の種類(と「失敗だけ」)のログを CSV で書き出す */}
+      <form action="/admin/logs/export" method="get" className="flex flex-wrap items-center gap-2 text-[13px]">
+        <input type="hidden" name="tab" value={tab} />
+        {tab === "fetch" && onlyFailed ? <input type="hidden" name="only" value="failed" /> : null}
+        <label className="flex items-center gap-2 text-muted">
+          期間
+          <select name="days" defaultValue="7" className="h-9 rounded-lg border border-line bg-surface px-2 text-text">
+            <option value="1">直近1日</option>
+            <option value="7">直近7日</option>
+            <option value="30">直近30日</option>
+            <option value="90">直近90日</option>
+          </select>
+        </label>
+        <button type="submit" className="h-9 rounded-full border border-line px-4 font-medium text-text hover:bg-sunken">
+          CSVで書き出す{tab === "fetch" && onlyFailed ? "(失敗だけ)" : ""}
+        </button>
+        <span className="text-xs text-muted">最大5000行。Excel でそのまま開けます</span>
+      </form>
 
       {tab === "fetch" ? <FetchTable onlyFailed={onlyFailed} /> : <AuditTable />}
       <p className="text-xs text-muted">直近100件を表示しています。取得ログは30日で自動的に削除されます。</p>

@@ -88,21 +88,27 @@ export async function fetchYoutubeChannel(channelId: string, admin: SupabaseClie
 // APIキーがないときの読み方。YouTube の公開フィードは 404 を返すことがあるので、
 // チャンネルのフィード → アップロード再生リストのフィード → チャンネルの動画一覧のページ の順に試す
 async function fetchYoutubeViaFeed(channelId: string): Promise<ParsedFeed> {
+  const reason = (error: unknown) => (error instanceof Error ? error.message : "不明なエラー").replace(/^取得に失敗しました/, "");
+  const failures: string[] = [];
   try {
     return await fetchYoutubeFeedUrl(channelId, youtubeFeedUrl(channelId));
-  } catch (first) {
-    try {
-      return await fetchYoutubeFeedUrl(channelId, `https://www.youtube.com/feeds/videos.xml?playlist_id=UU${channelId.slice(2)}`);
-    } catch {
-      try {
-        const page = await fetchYoutubeViaPage(channelId);
-        if (page.items.length > 0) return page;
-      } catch {
-        // 下で最初の失敗を伝える
-      }
-      throw first;
-    }
+  } catch (error) {
+    failures.push(`フィード${reason(error)}`);
   }
+  try {
+    return await fetchYoutubeFeedUrl(channelId, `https://www.youtube.com/feeds/videos.xml?playlist_id=UU${channelId.slice(2)}`);
+  } catch (error) {
+    failures.push(`再生リスト${reason(error)}`);
+  }
+  try {
+    const page = await fetchYoutubeViaPage(channelId);
+    if (page.items.length > 0) return page;
+    failures.push("動画一覧のページ(動画を見つけられませんでした)");
+  } catch (error) {
+    failures.push(`動画一覧のページ${reason(error)}`);
+  }
+  // どこで失敗したかを残す(ログで調べられるように)
+  throw new Error(`取得に失敗しました: ${failures.join(" / ")}`);
 }
 
 // チャンネルの「動画」の一覧ページから、最新の動画の番号・題名・おおよその投稿日(「3 days ago」など)を読む

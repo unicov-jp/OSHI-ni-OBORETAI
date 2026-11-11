@@ -39,6 +39,8 @@ type Props = {
   instagram: Record<string, string[]>;
   // Instagram の投稿を見つけた時刻(投稿のコード → 時刻)。投稿日時の代わりに、この時刻で X・YouTube などと日時の順に混ぜる
   instagramAt: Record<string, string>;
+  // Fantia のファンクラブごとの最新の投稿(番号・タイトル・投稿日)
+  fantia: Record<string, { id: string; title: string; at: string | null }[]>;
   // X のアカウントごとの最新の投稿(番号と日時。読めなかったアカウントは空)
   x: Record<string, { id: string; at: string }[]>;
   // TikTok のアカウントごとの最新の動画(番号と日時。日時は読めないこともある)
@@ -165,12 +167,13 @@ type Slide =
   | { kind: "insta"; key: string; source: Source; from: string; code: string }
   | { kind: "tweet"; key: string; source: Source; from: string; id: string; at: string }
   | { kind: "tiktok"; key: string; source: Source; from: string; id: string; at: string | null }
-  | { kind: "link"; key: string; source: Source; from: string };
+  | { kind: "link"; key: string; source: Source; from: string }
+  | { kind: "fanpost"; key: string; source: Source; from: string; id: string; title: string; at: string | null };
 
 const normalizeUrl = (url: string) => url.toLowerCase().replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/+$/, "");
 
 export function SwipeFeed({
-  isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, instagramAt, view: initialView, gallery, calendar, savedUrls, pinned,
+  isAdmin, mode, canSensitive, oshi, active, unread, sources, instagram, x, tiktok, items: initialItems, pageSize, pendingSns, instagramAt, fantia, view: initialView, gallery, calendar, savedUrls, pinned,
 }: Props) {
   const [saved, setSaved] = useState(() => new Set(savedUrls));
   // 推しの BGM(ギャラリー・カレンダーで流す)。たたんだかどうかは端末に覚える(たたむと止まる)
@@ -341,6 +344,17 @@ export function SwipeFeed({
         else undated.push(slide);
       }
     }
+    // Fantia: 投稿日が分かる投稿は日時の順に混ぜる(分からないものは後ろのリンクのカードの前に並べる)
+    const fanUndated: Slide[] = [];
+    for (const source of sources.filter((s) => s.platform === "fantia")) {
+      for (const post of fantia[source.id] ?? []) {
+        if (seen.has(`fa-${post.id}`)) continue;
+        seen.add(`fa-${post.id}`);
+        const slide: Slide = { kind: "fanpost", key: `f-${post.id}`, source, from: fromOf.get(source.id) ?? "", id: post.id, title: post.title, at: post.at };
+        if (post.at) dated.push({ at: post.at, slide });
+        else fanUndated.push(slide);
+      }
+    }
     // Instagram: 見つけた時刻が分かる投稿は、その時刻で日時の順に混ぜる
     const instaDated = new Set<string>();
     for (const source of sources.filter((s) => s.platform === "instagram")) {
@@ -384,11 +398,14 @@ export function SwipeFeed({
     });
     while (e < embeds.length) result.push(embeds[e++]);
     // Threads・Fantia・myfans・xfans・FANZA は、推しのページへ移るカードとして最後に並べる
+    result.push(...fanUndated);
     for (const source of sources.filter((s) => LINK_PLATFORMS.includes(s.platform))) {
+      // 投稿を読めた Fantia は、投稿のカードを出すのでリンクのカードは出さない
+      if (source.platform === "fantia" && (fantia[source.id] ?? []).length > 0) continue;
       result.push({ kind: "link", key: `l-${source.id}`, source, from: fromOf.get(source.id) ?? "" });
     }
     return result;
-  }, [items, sources, fromOf, instagram, instagramAt, x, tiktok, pinned]);
+  }, [items, sources, fromOf, instagram, instagramAt, fantia, x, tiktok, pinned]);
 
   // 画面に出ている1枚を調べる
   useEffect(() => {
@@ -473,7 +490,10 @@ export function SwipeFeed({
     (slide: Slide | undefined) => {
       // X・Instagram・TikTok: 未読の一覧にある投稿なら既読にする
       const postKey =
-        slide?.kind === "tweet" ? `x:${slide.id}` : slide?.kind === "insta" ? `ig:${slide.code}` : slide?.kind === "tiktok" ? `tt:${slide.id}` : null;
+        slide?.kind === "tweet" ? `x:${slide.id}`
+          : slide?.kind === "insta" ? `ig:${slide.code}`
+            : slide?.kind === "tiktok" ? `tt:${slide.id}`
+              : slide?.kind === "fanpost" ? `fa:${slide.id}` : null;
       if (postKey) {
         if (!Object.values(social).some((list) => list.includes(postKey))) return;
         const next: Record<string, string[]> = {};
@@ -753,6 +773,8 @@ export function SwipeFeed({
                 />
               ) : slide.kind === "link" ? (
                 <LinkSlide source={slide.source} from={slide.from} oshi={active} />
+              ) : slide.kind === "fanpost" ? (
+                <FanPostSlide source={slide.source} id={slide.id} title={slide.title} at={slide.at} from={slide.from} oshi={active} />
               ) : slide.kind === "insta" ? (
                 <InstaSlide source={slide.source} code={slide.code} from={slide.from} oshi={active} near={Math.abs(i - current) <= 1} />
               ) : (
@@ -1579,6 +1601,31 @@ function EmbedSlide({ source, from, oshi, live }: { source: Source; from: string
         }
         isNew={false}
       />
+    </>
+  );
+}
+
+// Fantia の投稿1件。タイトルと投稿日だけを出し、押すとログイン済みのブラウザでその投稿を開く(本文や画像は会員限定のため出さない)
+function FanPostSlide({ source, id, title, at, from, oshi }: {
+  source: Source; id: string; title: string; at: string | null; from: string; oshi: Oshi;
+}) {
+  const url = `https://fantia.jp/posts/${id}`;
+  return (
+    <>
+      <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 30% 20%, ${oshi.color}aa, #000 75%)` }} />
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="absolute inset-x-0 top-[var(--bar)] bottom-0 z-[6] flex flex-col justify-center px-6 pr-20 pb-44"
+      >
+        <p className="truncate text-xs font-extrabold tracking-wide text-white/80">FANTIA ・ {source.handle.replace(/^fanclubs\//, "ファンクラブ ")}</p>
+        <p className="mt-4 line-clamp-[8] text-[26px] leading-[1.45] font-black [text-shadow:0_2px_12px_rgba(0,0,0,.35)]">{title || "(無題の投稿)"}</p>
+        <span className="mt-6 flex h-11 w-fit items-center rounded-full bg-white px-6 text-[14px] font-bold text-black">Fantiaで見る</span>
+        <span className="mt-2 text-xs text-white/60">ログイン済みのブラウザで開きます</span>
+      </a>
+      <SideActions oshi={oshi} url={url} title={title} platform="Fantia" publishedAt={at} />
+      <Info platform="Fantia" oshi={oshi} from={from} time={at ? formatRelative(at) : ""} isNew={at ? at > oshi.last_seen_at : false} />
     </>
   );
 }

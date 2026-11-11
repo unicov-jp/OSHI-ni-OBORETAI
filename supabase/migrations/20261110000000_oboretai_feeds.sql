@@ -1005,3 +1005,81 @@ set next_fetch_at = (
       then interval '1 day' else interval '0' end
 ) at time zone 'Asia/Tokyo'
 where platform = 'blog' and status = 'active';
+
+-- ---------------------------------------------------------------------------
+-- Fantia の投稿も定期取得する(タイトル・投稿日・番号だけ。本文や画像は読まない)
+-- ---------------------------------------------------------------------------
+alter table public.oshikatsu_social_posts add column if not exists title text check (title is null or char_length(title) <= 300);
+do $$
+declare c text;
+begin
+  for c in select conname from pg_constraint
+    where conrelid in ('public.oshikatsu_social_accounts'::regclass, 'public.oshikatsu_social_posts'::regclass)
+      and contype = 'c' and pg_get_constraintdef(oid) ilike '%platform%'
+  loop
+    if exists (select 1 from pg_constraint where conname = c and conrelid = 'public.oshikatsu_social_accounts'::regclass) then
+      execute format('alter table public.oshikatsu_social_accounts drop constraint %I', c);
+    else
+      execute format('alter table public.oshikatsu_social_posts drop constraint %I', c);
+    end if;
+  end loop;
+end $$;
+alter table public.oshikatsu_social_accounts
+  add constraint oshikatsu_social_accounts_platform_check check (platform in ('x', 'instagram', 'tiktok', 'fantia'));
+alter table public.oshikatsu_social_posts
+  add constraint oshikatsu_social_posts_platform_check check (platform in ('x', 'instagram', 'tiktok', 'fantia'));
+
+create or replace function public.oshikatsu_claim_social_accounts(batch int default 40)
+returns setof public.oshikatsu_social_accounts
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.oshikatsu_social_accounts (platform, handle)
+  select distinct s.platform, lower(ltrim(s.handle, '@'))
+  from public.oshikatsu_sources s
+  where s.platform in ('x', 'instagram', 'tiktok', 'fantia') and ltrim(s.handle, '@') <> ''
+  on conflict do nothing;
+
+  delete from public.oshikatsu_social_accounts a
+  where not exists (
+    select 1 from public.oshikatsu_sources s
+    where s.platform = a.platform and lower(ltrim(s.handle, '@')) = a.handle
+  );
+
+  return query
+  with claimed as (
+    update public.oshikatsu_social_accounts a
+    set next_fetch_at = now() + interval '15 minutes'
+    where (a.platform, a.handle) in (
+      select d.platform, d.handle from public.oshikatsu_social_accounts d
+      where d.next_fetch_at <= now()
+      order by d.next_fetch_at
+      limit least(greatest(batch, 1), 200)
+      for update skip locked
+    )
+    returning a.*
+  )
+  select * from claimed;
+end;
+$$;
+revoke all on function public.oshikatsu_claim_social_accounts(int) from public, anon, authenticated;
+
+create or replace function public.oshikatsu_social_unread_keys()
+returns table (oshi_id text, post_key text)
+language sql stable security invoker set search_path = '' as $$
+  select distinct s.oshi_id, p.post_key
+  from public.oshikatsu_sources s
+  join public.oshikatsu_social_posts p
+    on p.platform = s.platform and p.handle = lower(ltrim(s.handle, '@'))
+  left join public.oshikatsu_post_reads r on r.user_id = s.user_id and r.post_key = p.post_key
+  where s.user_id = (select auth.uid())
+    and s.platform in ('x', 'instagram', 'tiktok', 'fantia')
+    and r.post_key is null
+    and not p.baseline
+    and p.first_seen_at > s.created_at
+    and coalesce(p.posted_at, p.first_seen_at) > s.created_at
+    and p.first_seen_at > now() - interval '30 days';
+$$;
+revoke all on function public.oshikatsu_social_unread_keys() from public, anon;
+grant execute on function public.oshikatsu_social_unread_keys() to authenticated;
+
+notify pgrst, 'reload schema';

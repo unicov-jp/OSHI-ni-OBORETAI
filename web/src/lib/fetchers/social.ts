@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fantiaClubId, fantiaPosts } from "@/lib/fetchers/fantia";
 import { instagramPostCodes } from "@/lib/fetchers/instagram";
 import { tiktokVideos } from "@/lib/fetchers/tiktok";
 import { xPosts } from "@/lib/fetchers/x";
@@ -7,9 +8,9 @@ import { xPosts } from "@/lib/fetchers/x";
 // X・Instagram・TikTok の定期取得。アカウントごとに次の取得時刻を持ち、時刻が来たものだけを読む。
 // 公式APIではなく公開ページを読むため、間隔は控えめにし、失敗が続くほど空ける。
 
-export type SocialPlatform = "x" | "instagram" | "tiktok";
+export type SocialPlatform = "x" | "instagram" | "tiktok" | "fantia";
 type AccountRow = { platform: SocialPlatform; handle: string; last_fetched_at: string | null; error_count: number };
-export type SocialPost = { key: string; at: string | null };
+export type SocialPost = { key: string; at: string | null; title?: string };
 
 const MINUTE = 60 * 1000;
 // 取得の間隔(分)。環境変数で変えられる
@@ -17,6 +18,7 @@ const INTERVAL: Record<SocialPlatform, number> = {
   x: Number(process.env.X_INTERVAL_MINUTES ?? 60),
   tiktok: Number(process.env.TIKTOK_INTERVAL_MINUTES ?? 60),
   instagram: Number(process.env.INSTAGRAM_INTERVAL_MINUTES ?? 120),
+  fantia: Number(process.env.FANTIA_INTERVAL_MINUTES ?? 60),
 };
 const MAX_BACKOFF = 12 * 60 * MINUTE;
 
@@ -34,6 +36,10 @@ export async function socialPostsOf(platform: SocialPlatform, handle: string): P
   const bare = handle.replace(/^@/, "");
   if (platform === "x") return (await xPosts(bare)).map((p) => ({ key: `x:${p.id}`, at: p.at }));
   if (platform === "tiktok") return (await tiktokVideos(bare)).map((v) => ({ key: `tt:${v.id}`, at: v.at }));
+  if (platform === "fantia") {
+    const club = fantiaClubId(bare);
+    return club ? (await fantiaPosts(club)).map((p) => ({ key: `fa:${p.id}`, at: p.at, title: p.title })) : [];
+  }
   return (await instagramPostCodes(bare)).map((code) => ({ key: `ig:${code}`, at: null }));
 }
 
@@ -49,7 +55,7 @@ export async function recordSocialPosts(
   if (posts.length === 0) return;
   const key = handle.replace(/^@/, "").toLowerCase();
   await admin.from("oshikatsu_social_posts").upsert(
-    posts.map((p) => ({ platform, handle: key, post_key: p.key, posted_at: p.at, baseline })),
+    posts.map((p) => ({ platform, handle: key, post_key: p.key, posted_at: p.at, title: p.title ?? null, baseline })),
     { onConflict: "platform,handle,post_key", ignoreDuplicates: true },
   );
   // 一覧に見えている投稿は、最後に見えた時刻を進める(見えている間は片付けない)

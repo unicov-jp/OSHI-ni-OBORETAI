@@ -11,6 +11,7 @@ import { getLatestByOshi, getLibrary, getManualPosts, getSavedPosts, getTimeline
 import { instagramPostCodes } from "@/lib/fetchers/instagram";
 import { tiktokVideos } from "@/lib/fetchers/tiktok";
 import { xPosts } from "@/lib/fetchers/x";
+import { fantiaClubId, fantiaPosts, type FantiaPost } from "@/lib/fetchers/fantia";
 import { getCalendar, getGallery } from "@/lib/memories";
 import { after } from "next/server";
 import { DEMO } from "@/lib/env";
@@ -86,7 +87,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
   // Instagram・X・TikTok は投稿1件ずつ見せるため、最新の投稿を読む(読めなければアカウントの表示)
   // 新着・ギャラリー・カレンダーの中身をまとめて読む(左右のスワイプはサーバーを待たずにその場で切り替える)
   const social = sources;
-  const [items, instagram, x, tiktok, gallery, calendar, manual] = await Promise.all([
+  const [items, instagram, x, tiktok, gallery, calendar, manual, fantia] = await Promise.all([
     getTimeline({ oshiIds: [active.id] }),
     Promise.all(
       social
@@ -104,11 +105,21 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     getGallery(active.id),
     getCalendar(active.id),
     getManualPosts(active.id),
+    // Fantia の最新の投稿(タイトル・投稿日だけ)
+    Promise.all(
+      social
+        .filter((s) => s.platform === "fantia")
+        .map(async (s) => {
+          const club = fantiaClubId(s.handle) ?? fantiaClubId(s.url);
+          return [s.id, club ? await fantiaPosts(club) : []] as const;
+        }),
+    ).then((pairs) => Object.fromEntries(pairs) as Record<string, FantiaPost[]>),
   ]);
   // 読んだ X・Instagram・TikTok の投稿を、画面を返した後で記録する(未読の数と、Instagram の並び順に使う)
   if (!DEMO) {
     const live: { platform: SocialPlatform; handle: string; posts: SocialPost[] }[] = [];
     for (const s of social) {
+      if (s.platform === "fantia") live.push({ platform: "fantia", handle: handleOf(s.handle), posts: (fantia[s.id] ?? []).map((p) => ({ key: `fa:${p.id}`, at: p.at, title: p.title })) });
       if (s.platform === "x") live.push({ platform: "x", handle: handleOf(s.handle), posts: (x[s.id] ?? []).map((p) => ({ key: `x:${p.id}`, at: p.at })) });
       if (s.platform === "tiktok") live.push({ platform: "tiktok", handle: handleOf(s.handle), posts: (tiktok[s.id] ?? []).map((v) => ({ key: `tt:${v.id}`, at: v.at })) });
       if (s.platform === "instagram") live.push({ platform: "instagram", handle: handleOf(s.handle), posts: (instagram[s.id] ?? []).map((code: string) => ({ key: `ig:${code}`, at: null })) });
@@ -170,6 +181,7 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
       savedUrls={savedUrls}
       pinned={pinned}
       instagramAt={instagramAt}
+      fantia={fantia}
     />
   );
 }

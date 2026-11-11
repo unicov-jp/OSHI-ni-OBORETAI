@@ -56,14 +56,14 @@ export function useLongPress(onLongPress: () => void) {
 
 // 推しのアイコン: タップでその推しの新着、長押しでその推しのSNSの登録
 
-// 押している間だけ何かをする(動画の長押しで倍速など)。0.4秒押し続けたら onStart、指を離したら onEnd。
-// repeat を渡すと、押し始めから repeat.firstMs 後とそれ以降 repeat.everyMs ごとに repeat.onRepeat(回数) を呼ぶ。
+// 押している間だけ何かをする(動画の長押しで倍速など)。0.5秒押し続けたら onStart、指を離したら onEnd。
+// repeat を渡すと、押し始めから repeat.firstMs 後とそれ以降 repeat.everyMs ごとに repeat.onRepeat(回数) を呼ぶ(最大 repeat.max 回)。
 // 押し始めてすぐ指が動いたら(上下のスワイプ)、何もしない。押し続けた後のクリック(タップの動作)は止める
-const HOLD_MS = 400;
+const HOLD_MS = 500;
 export function useHold(
   onStart: () => void,
   onEnd: () => void,
-  repeat?: { firstMs: number; everyMs: number; onRepeat: (count: number) => void },
+  repeat?: { firstMs: number; everyMs: number; max?: number; onRepeat: (count: number) => void },
 ) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const repeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -85,7 +85,7 @@ export function useHold(
     }
   };
   const scheduleRepeat = (delay: number, n: number) => {
-    if (!repeat) return;
+    if (!repeat || (repeat.max !== undefined && n > repeat.max)) return;
     repeatTimer.current = setTimeout(() => {
       if (!holding.current) return;
       setCount(n);

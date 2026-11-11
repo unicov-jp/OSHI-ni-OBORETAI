@@ -1369,16 +1369,17 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
   // 再生位置と長さ(YouTube から届く情報で更新する。長押しで1分ずつ先へ送るのに使う)
   const playback = useRef<{ at: number; duration: number }>({ at: 0, duration: 0 });
   // 動画を長押ししている間は2倍速(YouTube で選べるいちばん速い速さ)。離すと元の速さに戻す。
-  // さらに押し続けると、押し始めから1秒で1分先へ、その後も1秒ごとに1分ずつ先へ送る
+  // さらに押し続けると、1.0秒で+1分、1.5秒で+3分、2.0秒で+5分、2.5秒で+10分まで先へ送る
   const fast = useHold(
     () => send("setPlaybackRate", [2]),
     () => send("setPlaybackRate", [1]),
     {
       firstMs: SKIP_FIRST_MS,
       everyMs: SKIP_EVERY_MS,
-      onRepeat: () => {
+      max: SKIP_MINUTES.length,
+      onRepeat: (count) => {
         const { at, duration } = playback.current;
-        const target = at + SKIP_SECONDS;
+        const target = at + skipSeconds(count);
         const end = duration > 0 ? Math.max(0, duration - 1) : target;
         playback.current.at = Math.min(target, end);
         send("seekTo", [playback.current.at, true]);
@@ -1870,16 +1871,22 @@ function TweetSlide({ source, id, at, from, oshi, near, live }: {
 }
 
 // TikTok の動画1本。TikTok 公式の動画プレーヤーを全画面で出す。画面に出ている1本だけ読み込み、自動で再生する。
-// 動画の長押し: 0.4秒で2倍速、1秒で1分先へ、その後も1秒ごとに1分ずつ先へ
+// 動画の長押し: 0.5秒で2倍速、1.0秒で+1分、1.5秒で+3分、2.0秒で+5分、2.5秒で+10分(押し始めの位置からの合計)。
+// それより長く押しても +10分 のまま(2倍速は続く)
 const SKIP_FIRST_MS = 1000;
-const SKIP_EVERY_MS = 1000;
-const SKIP_SECONDS = 60;
+const SKIP_EVERY_MS = 500;
+const SKIP_MINUTES = [1, 3, 5, 10];
+// count 回目に先へ送る秒数(前の段からの差)
+function skipSeconds(count: number): number {
+  return ((SKIP_MINUTES[count - 1] ?? 0) - (SKIP_MINUTES[count - 2] ?? 0)) * 60;
+}
 
-// 長押しで倍速にしている間、画面の上に出す印(先へ送った分も出す)
+// 長押しで倍速にしている間、画面の上に出す印(先へ送った合計も出す)
 function FastBadge({ skipped }: { skipped: number }) {
+  const minutes = SKIP_MINUTES[skipped - 1];
   return (
     <p className="pointer-events-none absolute top-[calc(var(--bar)+0.5rem)] left-1/2 z-[6] -translate-x-1/2 rounded-full bg-black/60 px-4 py-1.5 text-[13px] font-bold whitespace-nowrap text-white">
-      2倍速 ▶▶{skipped > 0 ? ` ・ +${skipped}分` : ""}
+      2倍速 ▶▶{minutes ? ` ・ +${minutes}分` : ""}
     </p>
   );
 }
@@ -1897,16 +1904,17 @@ function TikTokSlide({ source, id, at, from, oshi, live, muted, onToggleSound }:
   // 再生位置と長さ(TikTok のプレーヤーから届く情報で更新する)
   const playback = useRef<{ at: number; duration: number }>({ at: 0, duration: 0 });
   // 動画を長押ししている間は2倍速(離すと元の速さに戻す)。TikTok のプレーヤーが速さの変更に応じない場合は、表示だけになる。
-  // さらに押し続けると、押し始めから1秒で1分先へ(動画の終わりより先には送らない)
+  // さらに押し続けると YouTube と同じく先へ送る(動画の終わりより先には送らない)
   const fast = useHold(
     () => send("setPlaybackRate", 2),
     () => send("setPlaybackRate", 1),
     {
       firstMs: SKIP_FIRST_MS,
       everyMs: SKIP_EVERY_MS,
-      onRepeat: () => {
+      max: SKIP_MINUTES.length,
+      onRepeat: (count) => {
         const { at, duration } = playback.current;
-        const target = at + SKIP_SECONDS;
+        const target = at + skipSeconds(count);
         const end = duration > 0 ? Math.max(0, duration - 1) : target;
         playback.current.at = Math.min(target, end);
         send("seekTo", playback.current.at);

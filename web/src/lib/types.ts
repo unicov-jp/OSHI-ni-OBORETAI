@@ -200,7 +200,7 @@ export type SavePostInput = {
 export type ManualPost = {
   id: string;
   oshi_id: string;
-  platform: "youtube";
+  platform: "youtube" | "redtube";
   url: string;
   title: string;
   thumbnail_url: string | null;

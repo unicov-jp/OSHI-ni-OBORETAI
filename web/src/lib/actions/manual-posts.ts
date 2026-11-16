@@ -5,6 +5,8 @@ import { z } from "zod";
 import { requireViewer } from "@/lib/auth";
 import { DEMO } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
+import { safeFetchText } from "@/lib/fetchers/safe-fetch";
+import { canUseAdvanced } from "@/lib/plans";
 import type { ActionResult, ManualPost } from "@/lib/types";
 
 // 個別投稿の更新: 推しのフィードに、過去の YouTube 動画などをURLで1件ずつ足す・外す。
@@ -61,6 +63,43 @@ async function youtubeInfo(url: string): Promise<{ title: string; thumbnail: str
   }
 }
 
+// RedTube の動画のURLから、動画の番号を読み取る(redtube.com・ru.redtube.com などの /<番号>)
+function parseRedtube(input: string): string | null {
+  let raw = input.trim();
+  if (!raw || raw.length > 500) return null;
+  if (!/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  if (host !== "redtube.com" && !host.endsWith(".redtube.com")) return null;
+  const id = /^\/(\d{3,12})\/?$/.exec(url.pathname)?.[1] ?? (host.startsWith("embed.") ? url.searchParams.get("id") : null);
+  return id && /^\d{3,12}$/.test(id) ? id : null;
+}
+
+// RedTube の公開の窓口から、動画の題名とサムネイルを読む。読めなければ null
+async function redtubeInfo(id: string): Promise<{ title: string; thumbnail: string | null } | null> {
+  try {
+    const page = await safeFetchText(
+      `https://api.redtube.com/?data=redtube.Videos.getVideoById&video_id=${id}&output=json&thumbsize=big`,
+      { headers: { accept: "application/json" } },
+    );
+    const data = JSON.parse(page.text) as { video?: { title?: unknown; thumb?: unknown; default_thumb?: unknown } };
+    const video = data.video;
+    if (!video) return null;
+    const pick = (value: unknown) => (typeof value === "string" && /^https:\/\//.test(value) ? value : null);
+    return {
+      title: typeof video.title === "string" ? video.title.slice(0, 300) : "",
+      thumbnail: pick(video.default_thumb) ?? pick(video.thumb),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function listManualPosts(oshi: string): Promise<ActionResult<{ posts: ManualPost[] }>> {
   await requireViewer();
   const parsed = oshiId.safeParse(oshi);
@@ -82,8 +121,19 @@ export async function addManualPost(oshi: string, input: string): Promise<Action
   const parsedOshi = oshiId.safeParse(oshi);
   if (!parsedOshi.success) return { ok: false, error: "推しを選び直してください" };
   const video = parseYoutube(input);
-  if (!video) return { ok: false, error: "YouTube の動画のURLを入力してください(例: https://www.youtube.com/watch?v=…)" };
+  const redtube = video ? null : parseRedtube(input);
+  if (redtube && !canUseAdvanced(viewer.plan)) return { ok: false, error: "RedTube の動画は Sensitive プランで追加できます" };
+  if (!video && !redtube) {
+    return {
+      ok: false,
+      error: canUseAdvanced(viewer.plan)
+        ? "YouTube か RedTube の動画のURLを入力してください"
+        : "YouTube の動画のURLを入力してください(例: https://www.youtube.com/watch?v=…)",
+    };
+  }
   if (DEMO) return { ok: false, error: "デモ表示では追加できません" };
+  if (redtube) return addRedtubePost(viewer.id, parsedOshi.data, redtube);
+  if (!video) return { ok: false, error: "追加できませんでした" };
 
   const url = video.short ? `https://www.youtube.com/shorts/${video.id}` : `https://www.youtube.com/watch?v=${video.id}`;
   const supabase = await createClient();
@@ -106,6 +156,36 @@ export async function addManualPost(oshi: string, input: string): Promise<Action
       url,
       title: info?.title || "YouTube の動画",
       thumbnail_url: info?.thumbnail ?? `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`,
+    })
+    .select("id, oshi_id, platform, url, title, thumbnail_url, created_at")
+    .single();
+  if (error) {
+    if (error.code === "23505") return { ok: false, error: "この動画はもう追加してあります" };
+    return { ok: false, error: "追加できませんでした。時間をおいてお試しください" };
+  }
+  revalidatePath("/app");
+  return { ok: true, data: { post: data as ManualPost } };
+}
+
+async function countFor(oshi: string): Promise<number> {
+  const supabase = await createClient();
+  const { count } = await supabase.from("oshikatsu_manual_posts").select("id", { count: "exact", head: true }).eq("oshi_id", oshi);
+  return count ?? 0;
+}
+
+async function addRedtubePost(userId: string, oshi: string, id: string): Promise<ActionResult<{ post: ManualPost }>> {
+  if ((await countFor(oshi)) >= MAX_PER_OSHI) return { ok: false, error: `1人の推しに追加できるのは${MAX_PER_OSHI}件までです` };
+  const info = await redtubeInfo(id);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("oshikatsu_manual_posts")
+    .insert({
+      user_id: userId,
+      oshi_id: oshi,
+      platform: "redtube",
+      url: `https://www.redtube.com/${id}`,
+      title: info?.title || "RedTube の動画",
+      thumbnail_url: info?.thumbnail ?? null,
     })
     .select("id, oshi_id, platform, url, title, thumbnail_url, created_at")
     .single();

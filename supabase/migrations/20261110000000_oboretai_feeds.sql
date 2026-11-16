@@ -1117,3 +1117,18 @@ from (values
 where not exists (select 1 from public.oshikatsu_admin_tasks);
 
 notify pgrst, 'reload schema';
+
+-- 個別投稿に RedTube の動画も足せるようにする(Sensitive プランだけ。アプリ側で確かめる)
+do $$
+declare c text;
+begin
+  for c in select conname from pg_constraint
+    where conrelid = 'public.oshikatsu_manual_posts'::regclass and contype = 'c' and pg_get_constraintdef(oid) ilike '%platform%'
+  loop
+    execute format('alter table public.oshikatsu_manual_posts drop constraint %I', c);
+  end loop;
+end $$;
+alter table public.oshikatsu_manual_posts
+  add constraint oshikatsu_manual_posts_platform_check check (platform in ('youtube', 'redtube'));
+
+notify pgrst, 'reload schema';

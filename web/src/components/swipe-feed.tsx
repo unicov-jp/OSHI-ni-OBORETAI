@@ -1089,6 +1089,7 @@ function OshiMenu({ oshi, onClose }: { oshi: Oshi; onClose: () => void }) {
 // 個別投稿の更新: 過去の YouTube 動画などをURLで推しのフィードに足す・外す。足した投稿はフィードの先頭に並ぶ
 function ManualPosts({ oshi, onBack }: { oshi: Oshi; onBack: () => void }) {
   const router = useRouter();
+  const { canSensitive } = useContext(Controls);
   const [posts, setPosts] = useState<ManualPost[] | null>(null);
   const [url, setUrl] = useState("");
   const [message, setMessage] = useState<{ tone: "ok" | "danger"; text: string } | null>(null);
@@ -1150,7 +1151,7 @@ function ManualPosts({ oshi, onBack }: { oshi: Oshi; onBack: () => void }) {
           value={url}
           onChange={(event) => setUrl(event.target.value)}
           inputMode="url"
-          placeholder="YouTube の動画のURL"
+          placeholder={canSensitive ? "YouTube・RedTube の動画のURL" : "YouTube の動画のURL"}
           aria-label="追加する投稿のURL"
           className="h-11 min-w-0 flex-1 rounded-xl border border-white/15 bg-white/5 px-3 text-[15px] text-white placeholder:text-white/40"
         />
@@ -1483,6 +1484,12 @@ function ItemSlide({ item, from, oshi, live, near, muted, onToggleSound }: {
     const timers = [500, 1500, 3000, 5000, 8000, 12000, 20000].map((wait) => setTimeout(hideCaptions, wait));
     return () => timers.forEach(clearTimeout);
   }, [live]);
+
+  // 個別に追加した RedTube の動画(Sensitive)
+  const redtubeId = /^https:\/\/www\.redtube\.com\/(\d{3,12})$/.exec(item.url)?.[1];
+  if (redtubeId) {
+    return <RedTubeSlide id={redtubeId} item={item} title={title} time={time} from={from} oshi={oshi} live={live} />;
+  }
 
   if (!videoId) {
     // 記事(Blog): 見出しのカードを出す。本文は保存しないので、続きは元のサイトで読む
@@ -1974,6 +1981,38 @@ function useFastForward(
         player.seek(Math.min(target, end));
       },
     },
+  );
+}
+
+// RedTube の動画1本(推しのメニューの「個別投稿の更新」で追加したもの)。RedTube 公式の埋め込みプレーヤーを出し、
+// 画面に出ているときだけ読み込む。プレーヤーの外側(上下)は、フィードの上下のスワイプを受け取る
+function RedTubeSlide({ id, item, title, time, from, oshi, live }: {
+  id: string; item: TimelineItem; title: string; time: string; from: string; oshi: Oshi; live: boolean;
+}) {
+  return (
+    <>
+      <div className="absolute inset-0" style={{ background: `radial-gradient(120% 80% at 50% 30%, ${oshi.color}66, #000 72%)` }} />
+      <div className="absolute inset-x-0 top-[calc(var(--bar)+3rem)] z-[6] px-3">
+        <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-black">
+          {live ? (
+            <iframe
+              src={`https://embed.redtube.com/?id=${id}`}
+              title={title || "RedTube の動画"}
+              allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+              className="absolute inset-0 h-full w-full border-0"
+            />
+          ) : item.thumbnail_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={item.thumbnail_url} alt="" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" />
+          ) : null}
+        </div>
+        <p className="mt-4 line-clamp-3 text-[20px] leading-[1.45] font-black [text-shadow:0_2px_12px_rgba(0,0,0,.35)]">{title}</p>
+      </div>
+      <SideActions oshi={oshi} url={item.url} title={title} platform="RedTube" thumbnail={item.thumbnail_url} publishedAt={item.published_at} />
+      <Info platform="RedTube" oshi={oshi} from={from} time={time} isNew={false} />
+    </>
   );
 }
 

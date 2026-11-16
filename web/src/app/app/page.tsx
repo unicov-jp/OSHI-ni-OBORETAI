@@ -148,7 +148,8 @@ export default async function FeedPage({ searchParams }: { searchParams: Search 
     item_id: `m-${post.id}`,
     oshi_id: post.oshi_id,
     source_id: "",
-    platform: post.platform,
+    // RedTube は Platform に無いので「リンク」として渡し、新着の画面では URL で見分けて RedTube のプレーヤーで出す
+    platform: post.platform === "redtube" ? "link" : post.platform,
     title: post.title,
     url: post.url,
     thumbnail_url: post.thumbnail_url,
